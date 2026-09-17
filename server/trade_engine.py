@@ -286,27 +286,34 @@ class TradeEngine:
             if p["symbol"] == symbol:
                 return {"success": False, "message": f"Position on {symbol} already active in Slot {p.get('slot_num')}."}
 
-        # 4. STRICT $2.00 MAXIMUM RISK PER TRADE RULE
-        # Never risk more than $2.00 per trade under any circumstance
-        max_allowed_risk_usd = 2.00
-        configured_risk = round(self.balance * (self.risk_per_trade_percent / 100.0), 2)
-        risk_usd = min(configured_risk, max_allowed_risk_usd)
-        if risk_usd <= 0.20:
-            risk_usd = 2.00  # Default to exactly $2.00 if balance is small
+        # 4. STRICT $10.00 TRADE SIZE & $2.00 MAX RISK RULE
+        # User requirement: Each trade placed must be strictly $10.00 USDT
+        target_trade_size_usd = 10.00
 
+        # Calculate exact quantity for a $10.00 position
+        if current_price < 0.001:
+            qty = round(target_trade_size_usd / current_price, 1)
+        elif current_price < 1.0:
+            qty = round(target_trade_size_usd / current_price, 4)
+        else:
+            qty = round(target_trade_size_usd / current_price, 5)
+
+        notional_value = round(qty * current_price, 2)
+        if notional_value <= 0:
+            notional_value = target_trade_size_usd
+            
+        margin_required = notional_value  # Spot allocation is $10.00
+
+        # Calculate risk at Stop Loss
         price_diff = abs(current_price - sl)
         if price_diff <= 0:
             price_diff = current_price * 0.01
-            
-        qty = round(risk_usd / price_diff, 5)
-        notional_value = round(qty * current_price, 2)
-        margin_required = round(notional_value / 5.0, 2)  # 5x leverage
-        
-        # In simulated paper trading, clamp margin to $10 max
-        if self.trading_mode == "SIMULATED_PAPER" and margin_required > 10.0:
-            margin_required = 10.0
-            notional_value = margin_required * 5.0
-            qty = round(notional_value / current_price, 5)
+
+        calculated_risk_usd = round(qty * price_diff, 2)
+        # Risk is strictly capped at $2.00 max
+        risk_usd = min(calculated_risk_usd, 2.00)
+        if risk_usd <= 0.05:
+            risk_usd = round(notional_value * 0.015, 2)  # Default to ~1.5% SL ($0.15) if tight
 
         # 3-Tier Take-Profit Ladder Calculation
         sl_dist = abs(current_price - sl)
