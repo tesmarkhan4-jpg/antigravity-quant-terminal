@@ -27,33 +27,36 @@ DAILY_PKR_TARGET_MAX = 3000.0  # PKR
 
 _exchange_info_cache: Dict[str, Any] = {}
 
-def get_symbol_filters(symbol: str) -> Dict[str, Any]:
+def get_symbol_filters(symbol: str, base_url: str = "https://api.binance.com") -> Dict[str, Any]:
     global _exchange_info_cache
-    if symbol in _exchange_info_cache:
-        return _exchange_info_cache[symbol]
-    try:
-        r = requests.get("https://api.binance.com/api/v3/exchangeInfo", params={"symbol": symbol.upper()}, timeout=4)
-        if r.status_code == 200:
-            symbols = r.json().get("symbols", [])
-            if symbols:
-                sym_info = symbols[0]
-                filters = {f["filterType"]: f for f in sym_info.get("filters", [])}
-                lot_size = filters.get("LOT_SIZE", {})
-                min_notional = filters.get("NOTIONAL", filters.get("MIN_NOTIONAL", {}))
-                
-                step_size = float(lot_size.get("stepSize", 0.00001))
-                min_qty = float(lot_size.get("minQty", 0.00001))
-                min_notional_val = float(min_notional.get("minNotional", 10.0))
-                
-                info = {
-                    "step_size": step_size,
-                    "min_qty": min_qty,
-                    "min_notional": min_notional_val
-                }
-                _exchange_info_cache[symbol] = info
-                return info
-    except Exception:
-        pass
+    cache_key = f"{symbol}_{base_url}"
+    if cache_key in _exchange_info_cache:
+        return _exchange_info_cache[cache_key]
+    endpoints = [base_url, "https://api1.binance.com", "https://api.binance.com"]
+    for host in endpoints:
+        try:
+            r = requests.get(f"{host}/api/v3/exchangeInfo", params={"symbol": symbol.upper()}, timeout=10)
+            if r.status_code == 200:
+                symbols = r.json().get("symbols", [])
+                if symbols:
+                    sym_info = symbols[0]
+                    filters = {f["filterType"]: f for f in sym_info.get("filters", [])}
+                    lot_size = filters.get("LOT_SIZE", {})
+                    min_notional = filters.get("NOTIONAL", filters.get("MIN_NOTIONAL", {}))
+                    
+                    step_size = float(lot_size.get("stepSize", 0.00001))
+                    min_qty = float(lot_size.get("minQty", 0.00001))
+                    min_notional_val = float(min_notional.get("minNotional", 10.0))
+                    
+                    info = {
+                        "step_size": step_size,
+                        "min_qty": min_qty,
+                        "min_notional": min_notional_val
+                    }
+                    _exchange_info_cache[cache_key] = info
+                    return info
+        except Exception:
+            continue
     return {"step_size": 0.00001, "min_qty": 0.00001, "min_notional": 10.0}
 
 def format_qty_to_step(qty: float, step_size: float) -> float:
@@ -75,7 +78,7 @@ class TradeEngine:
         self.daily_pnl_usd = 0.0
         self.max_daily_loss_usd = 7.0  # approx 2,000 PKR circuit breaker
         
-        # Institutional Exchange Connector State (Real Live vs Demo Paper)
+        # Institutional Exchange Connector State (Real Live vs Demo Paper vs Testnet)
         env_mode = os.getenv("TRADING_MODE", "SIMULATED_PAPER").strip().upper()
         self.trading_mode = env_mode if env_mode in ["BINANCE_LIVE", "BINANCE_TESTNET", "SIMULATED_PAPER"] else "SIMULATED_PAPER"
         self.binance_api_key = os.getenv("BINANCE_API_KEY", "").strip()
@@ -90,20 +93,66 @@ class TradeEngine:
         self.trade_history: List[Dict[str, Any]] = []
         self.trade_counter = 1
 
+    def get_binance_endpoints(self) -> List[str]:
+        """Returns the appropriate API clusters depending on testnet vs live."""
+        if self.trading_mode == "BINANCE_TESTNET":
+            return ["https://testnet.binance.vision"]
+        return [
+            "https://api.binance.com",
+            "https://api1.binance.com",
+            "https://api2.binance.com",
+            "https://api3.binance.com"
+        ]
+
+    def binance_signed_request(self, endpoint: str, method: str = "GET", params: Optional[Dict[str, Any]] = None, timeout: int = 12):
+        """Resilient signed request helper with cluster fallback and high-latency tolerance."""
+        if not (self.binance_api_key and self.binance_api_secret):
+            return None, "API Key or Secret missing"
+        endpoints = self.get_binance_endpoints()
+        last_err = None
+        for base in endpoints:
+            try:
+                server_ts = int(time.time() * 1000)
+                try:
+                    time_res = requests.get(f"{base}/api/v3/time", timeout=min(timeout, 8))
+                    if time_res.status_code == 200:
+                        server_ts = time_res.json().get("serverTime", server_ts)
+                except Exception:
+                    pass
+
+                from urllib.parse import urlencode
+                q_dict = dict(params or {})
+                q_dict["timestamp"] = server_ts
+                q_dict["recvWindow"] = 60000
+                query_str = urlencode(q_dict)
+                sig = hmac.new(self.binance_api_secret.encode("utf-8"), query_str.encode("utf-8"), hashlib.sha256).hexdigest()
+                url = f"{base}{endpoint}?{query_str}&signature={sig}"
+                headers = {"X-MBX-APIKEY": self.binance_api_key}
+                
+                if method.upper() == "POST":
+                    r = requests.post(url, headers=headers, timeout=timeout)
+                elif method.upper() == "DELETE":
+                    r = requests.delete(url, headers=headers, timeout=timeout)
+                else:
+                    r = requests.get(url, headers=headers, timeout=timeout)
+                return r, None
+            except Exception as e:
+                last_err = e
+                continue
+        return None, str(last_err)
+
     def check_live_binance_balance(self) -> float:
         """Fetches live USDT free balance and all non-zero asset balances from Binance Spot API."""
         now = time.time()
-        if now - self.last_balance_check < 8.0:
+        if now - self.last_balance_check < 6.0:
             return self.live_usdt_balance
         if not (self.binance_api_key and self.binance_api_secret):
             return 0.0
+        if self.trading_mode not in ["BINANCE_LIVE", "BINANCE_TESTNET"]:
+            return self.balance
         try:
-            server_ts = requests.get("https://api.binance.com/api/v3/time", timeout=4).json().get("serverTime", int(time.time() * 1000))
-            query = f"timestamp={server_ts}&recvWindow=60000"
-            sig = hmac.new(self.binance_api_secret.encode("utf-8"), query.encode("utf-8"), hashlib.sha256).hexdigest()
-            headers = {"X-MBX-APIKEY": self.binance_api_key}
-            r = requests.get(f"https://api.binance.com/api/v3/account?{query}&signature={sig}", headers=headers, timeout=5)
-            if r.status_code == 200:
+            r, err = self.binance_signed_request("/api/v3/account", method="GET", timeout=12)
+            if r is not None and r.status_code == 200:
                 data = r.json()
                 wallet_assets = []
                 for b in data.get("balances", []):
@@ -118,17 +167,23 @@ class TradeEngine:
                         })
                     if b.get("asset") == "USDT":
                         self.live_usdt_balance = round(free, 2)
+                        self.balance = self.live_usdt_balance
                 self.live_wallet_assets = wallet_assets
                 self.last_balance_check = now
                 self.exchange_connected = True
                 return self.live_usdt_balance
+            else:
+                self.exchange_connected = False
+                err_text = r.text[:80] if r is not None else str(err)
+                print(f"[BINANCE API] Error fetching balance ({self.trading_mode}): {err_text}")
         except Exception as e:
+            self.exchange_connected = False
             print(f"[BINANCE API] Error fetching live balance: {e}")
         return self.live_usdt_balance
 
     def get_account_summary(self) -> Dict[str, Any]:
         """Returns account balance, PnL, PKR target progress, and Dual Slot status."""
-        if self.trading_mode == "BINANCE_LIVE" and self.exchange_connected:
+        if self.trading_mode in ["BINANCE_LIVE", "BINANCE_TESTNET"] and self.exchange_connected:
             self.check_live_binance_balance()
             
         unrealized_pnl = sum(p["unrealized_pnl"] for p in self.positions)
@@ -264,30 +319,31 @@ class TradeEngine:
             "execution_mode": self.trading_mode
         }
 
-        # Real Live Binance Execution Bridge
-        if self.trading_mode == "BINANCE_LIVE" and self.binance_api_key and self.binance_api_secret:
+        # Real Live or Testnet Binance Execution Bridge
+        if self.trading_mode in ["BINANCE_LIVE", "BINANCE_TESTNET"] and self.binance_api_key and self.binance_api_secret:
             try:
-                server_ts = requests.get("https://api.binance.com/api/v3/time", timeout=4).json().get("serverTime", int(time.time() * 1000))
                 side = "BUY" if position_type.upper() == "LONG" else "SELL"
                 quote_amt = max(round(margin_required, 1), 10.0)  # Binance minimum order value
-                query = f"symbol={symbol}&side={side}&type=MARKET&quoteOrderQty={quote_amt}&timestamp={server_ts}&recvWindow=60000"
-                sig = hmac.new(self.binance_api_secret.encode("utf-8"), query.encode("utf-8"), hashlib.sha256).hexdigest()
-                headers = {"X-MBX-APIKEY": self.binance_api_key}
-                resp = requests.post(f"https://api.binance.com/api/v3/order?{query}&signature={sig}", headers=headers, timeout=5)
-                if resp.status_code == 200:
-                    order_data = resp.json()
+                r_order, err_order = self.binance_signed_request(
+                    "/api/v3/order",
+                    method="POST",
+                    params={"symbol": symbol, "side": side, "type": "MARKET", "quoteOrderQty": quote_amt},
+                    timeout=12
+                )
+                if r_order is not None and r_order.status_code == 200:
+                    order_data = r_order.json()
                     new_pos["binance_order_id"] = order_data.get("orderId")
-                    new_pos["binance_status"] = "LIVE_ORDER_FILLED"
-                    print(f"[BINANCE LIVE] Order filled: {order_data.get('orderId')}")
+                    new_pos["binance_status"] = f"{self.trading_mode}_ORDER_FILLED"
+                    print(f"[{self.trading_mode}] Order filled: {order_data.get('orderId')}")
                 else:
-                    err_data = resp.json()
+                    err_msg = r_order.text[:60] if r_order is not None else str(err_order)
                     new_pos["binance_status"] = "REJECTED_FALLBACK"
-                    new_pos["binance_note"] = err_data.get("msg", resp.text[:60])
-                    print(f"[BINANCE LIVE] Live order notice: {new_pos['binance_note']}")
+                    new_pos["binance_note"] = err_msg
+                    print(f"[{self.trading_mode}] Order notice: {new_pos['binance_note']}")
             except Exception as e:
                 new_pos["binance_status"] = "ERROR_FALLBACK"
                 new_pos["binance_note"] = str(e)
-                print(f"[BINANCE LIVE] Exception placing live order: {e}")
+                print(f"[{self.trading_mode}] Exception placing order: {e}")
 
         self.positions.append(new_pos)
 
@@ -353,23 +409,24 @@ class TradeEngine:
                     pos["breakeven_locked"] = True
                     print(f"[TP1 LADDER] 40% partial profit secured (+${net_partial:.2f} / +{net_partial * PKR_RATE:.0f} PKR) on {pos['symbol']}. Breakeven Shield locked at ${pos['sl']}!")
 
-                    # Live Binance Partial Execution (Sell 40% back to USDT)
-                    if self.trading_mode == "BINANCE_LIVE" and self.binance_api_key and self.binance_api_secret and pos.get("binance_order_id"):
+                    # Live Binance / Testnet Partial Execution (Sell 40% back to USDT)
+                    if self.trading_mode in ["BINANCE_LIVE", "BINANCE_TESTNET"] and self.binance_api_key and self.binance_api_secret and pos.get("binance_order_id"):
                         try:
-                            server_ts = requests.get("https://api.binance.com/api/v3/time", timeout=4).json().get("serverTime", int(time.time() * 1000))
                             sym = pos["symbol"]
-                            sym_filters = get_symbol_filters(sym)
+                            sym_filters = get_symbol_filters(sym, self.get_binance_endpoints()[0])
                             p_close_qty = format_qty_to_step(partial_qty, sym_filters["step_size"])
                             if p_close_qty >= sym_filters["min_qty"]:
                                 side = "SELL" if pos["type"] == "LONG" else "BUY"
-                                query = f"symbol={sym}&side={side}&type=MARKET&quantity={p_close_qty}&timestamp={server_ts}&recvWindow=60000"
-                                sig = hmac.new(self.binance_api_secret.encode("utf-8"), query.encode("utf-8"), hashlib.sha256).hexdigest()
-                                headers = {"X-MBX-APIKEY": self.binance_api_key}
-                                r_tp1 = requests.post(f"https://api.binance.com/api/v3/order?{query}&signature={sig}", headers=headers, timeout=5)
-                                if r_tp1.status_code == 200:
-                                    print(f"[BINANCE LIVE TP1] 40% partial order filled on Binance: {r_tp1.json().get('orderId')}")
+                                r_tp1, _ = self.binance_signed_request(
+                                    "/api/v3/order",
+                                    method="POST",
+                                    params={"symbol": sym, "side": side, "type": "MARKET", "quantity": p_close_qty},
+                                    timeout=12
+                                )
+                                if r_tp1 is not None and r_tp1.status_code == 200:
+                                    print(f"[{self.trading_mode} TP1] 40% partial order filled: {r_tp1.json().get('orderId')}")
                         except Exception as e:
-                            print(f"[BINANCE LIVE TP1] Exception securing partial profit: {e}")
+                            print(f"[{self.trading_mode} TP1] Exception securing partial profit: {e}")
 
             # 2. TP2 (40% Partial Scale-Out at 1:2.0 R:R) -> Arms Runner Dynamic Trailing Stop
             if pos.get("tp1_hit", False) and not pos.get("tp2_hit", False):
@@ -394,23 +451,24 @@ class TradeEngine:
                     pos["sl"] = pos["tp1"]
                     print(f"[TP2 LADDER] 40% partial profit secured (+${net_partial:.2f} / +{net_partial * PKR_RATE:.0f} PKR) on {pos['symbol']}. Remaining 20% Runner trailing behind ${pos['sl']}!")
 
-                    # Live Binance Partial Execution (Sell 40% back to USDT)
-                    if self.trading_mode == "BINANCE_LIVE" and self.binance_api_key and self.binance_api_secret and pos.get("binance_order_id"):
+                    # Live Binance / Testnet Partial Execution (Sell 40% back to USDT)
+                    if self.trading_mode in ["BINANCE_LIVE", "BINANCE_TESTNET"] and self.binance_api_key and self.binance_api_secret and pos.get("binance_order_id"):
                         try:
-                            server_ts = requests.get("https://api.binance.com/api/v3/time", timeout=4).json().get("serverTime", int(time.time() * 1000))
                             sym = pos["symbol"]
-                            sym_filters = get_symbol_filters(sym)
+                            sym_filters = get_symbol_filters(sym, self.get_binance_endpoints()[0])
                             p_close_qty = format_qty_to_step(partial_qty, sym_filters["step_size"])
                             if p_close_qty >= sym_filters["min_qty"]:
                                 side = "SELL" if pos["type"] == "LONG" else "BUY"
-                                query = f"symbol={sym}&side={side}&type=MARKET&quantity={p_close_qty}&timestamp={server_ts}&recvWindow=60000"
-                                sig = hmac.new(self.binance_api_secret.encode("utf-8"), query.encode("utf-8"), hashlib.sha256).hexdigest()
-                                headers = {"X-MBX-APIKEY": self.binance_api_key}
-                                r_tp2 = requests.post(f"https://api.binance.com/api/v3/order?{query}&signature={sig}", headers=headers, timeout=5)
-                                if r_tp2.status_code == 200:
-                                    print(f"[BINANCE LIVE TP2] 40% partial order filled on Binance: {r_tp2.json().get('orderId')}")
+                                r_tp2, _ = self.binance_signed_request(
+                                    "/api/v3/order",
+                                    method="POST",
+                                    params={"symbol": sym, "side": side, "type": "MARKET", "quantity": p_close_qty},
+                                    timeout=12
+                                )
+                                if r_tp2 is not None and r_tp2.status_code == 200:
+                                    print(f"[{self.trading_mode} TP2] 40% partial order filled: {r_tp2.json().get('orderId')}")
                         except Exception as e:
-                            print(f"[BINANCE LIVE TP2] Exception securing partial profit: {e}")
+                            print(f"[{self.trading_mode} TP2] Exception securing partial profit: {e}")
 
             # 3. Dynamic Trailing on 20% Runner
             if pos.get("tp2_hit", False):
@@ -464,27 +522,28 @@ class TradeEngine:
         else:
             pnl_remaining = (pos["entry_price"] - exit_price) * active_qty
             
-        # Live Binance Exit Execution (Sell crypto back to USDT to lock in profits)
-        if self.trading_mode == "BINANCE_LIVE" and self.binance_api_key and self.binance_api_secret and pos.get("binance_order_id"):
+        # Live Binance / Testnet Exit Execution (Sell crypto back to USDT to lock in profits)
+        if self.trading_mode in ["BINANCE_LIVE", "BINANCE_TESTNET"] and self.binance_api_key and self.binance_api_secret and pos.get("binance_order_id"):
             try:
-                server_ts = requests.get("https://api.binance.com/api/v3/time", timeout=4).json().get("serverTime", int(time.time() * 1000))
                 sym = pos["symbol"]
-                sym_filters = get_symbol_filters(sym)
+                sym_filters = get_symbol_filters(sym, self.get_binance_endpoints()[0])
                 close_qty = format_qty_to_step(active_qty, sym_filters["step_size"])
                 if close_qty >= sym_filters["min_qty"]:
                     side = "SELL" if pos["type"] == "LONG" else "BUY"
-                    query = f"symbol={sym}&side={side}&type=MARKET&quantity={close_qty}&timestamp={server_ts}&recvWindow=60000"
-                    sig = hmac.new(self.binance_api_secret.encode("utf-8"), query.encode("utf-8"), hashlib.sha256).hexdigest()
-                    headers = {"X-MBX-APIKEY": self.binance_api_key}
-                    r_exit = requests.post(f"https://api.binance.com/api/v3/order?{query}&signature={sig}", headers=headers, timeout=5)
-                    if r_exit.status_code == 200:
+                    r_exit, _ = self.binance_signed_request(
+                        "/api/v3/order",
+                        method="POST",
+                        params={"symbol": sym, "side": side, "type": "MARKET", "quantity": close_qty},
+                        timeout=12
+                    )
+                    if r_exit is not None and r_exit.status_code == 200:
                         exit_data = r_exit.json()
                         pos["binance_exit_order_id"] = exit_data.get("orderId")
-                        print(f"[BINANCE LIVE] Exit order filled on Binance: {exit_data.get('orderId')}")
-                    else:
-                        print(f"[BINANCE LIVE] Exit order notice: {r_exit.text[:80]}")
+                        print(f"[{self.trading_mode}] Exit order filled on Binance: {exit_data.get('orderId')}")
+                    elif r_exit is not None:
+                        print(f"[{self.trading_mode}] Exit order notice: {r_exit.text[:80]}")
             except Exception as e:
-                print(f"[BINANCE LIVE] Exception closing live order: {e}")
+                print(f"[{self.trading_mode}] Exception closing order: {e}")
 
         # Calculate Binance exit trading fee (0.075% standard taker fee)
         exit_fee = round(active_qty * exit_price * 0.00075, 4)

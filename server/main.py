@@ -543,34 +543,39 @@ class ModeToggleRequest(BaseModel):
 
 @app.post("/api/toggle_mode")
 async def toggle_trading_mode(req: ModeToggleRequest):
-    new_mode = "BINANCE_LIVE" if req.mode.upper() in ["REAL", "LIVE", "BINANCE_LIVE"] else "SIMULATED_PAPER"
+    new_mode = "BINANCE_LIVE" if req.mode.upper() in ["REAL", "LIVE", "BINANCE_LIVE"] else ("BINANCE_TESTNET" if "TESTNET" in req.mode.upper() else "SIMULATED_PAPER")
     trade_engine.trading_mode = new_mode
     save_env_config(mode=new_mode)
     
     connected = False
     msg = ""
-    if new_mode == "BINANCE_LIVE":
+    if new_mode in ["BINANCE_LIVE", "BINANCE_TESTNET"]:
         if not (trade_engine.binance_api_key and trade_engine.binance_api_secret):
-            return {"success": False, "message": "No Binance API keys configured. Enter keys in Settings first."}
-        try:
-            import requests, time, hmac, hashlib
-            server_ts = requests.get("https://api.binance.com/api/v3/time", timeout=5).json().get("serverTime", int(time.time() * 1000))
-            query = f"timestamp={server_ts}&recvWindow=60000"
-            sig = hmac.new(trade_engine.binance_api_secret.encode("utf-8"), query.encode("utf-8"), hashlib.sha256).hexdigest()
-            headers = {"X-MBX-APIKEY": trade_engine.binance_api_key}
-            r = requests.get(f"https://api.binance.com/api/v3/account?{query}&signature={sig}", headers=headers, timeout=6)
-            if r.status_code == 200:
-                connected = True
-                trade_engine.exchange_connected = True
-                trade_engine.check_live_binance_balance()
-                msg = f"REAL LIVE Binance Mode Active! Account verified (USDT: ${trade_engine.live_usdt_balance:.2f})"
-            else:
-                connected = False
-                trade_engine.exchange_connected = False
-                msg = f"Binance Auth Failed: {r.json().get('msg', r.text[:80])}"
-        except Exception as e:
+            return {"success": False, "message": f"No Binance API keys configured for {new_mode}. Enter keys in Settings first."}
+        r, err = trade_engine.binance_signed_request("/api/v3/account", method="GET", timeout=12)
+        if r is not None and r.status_code == 200:
+            connected = True
+            trade_engine.exchange_connected = True
+            trade_engine.last_balance_check = 0
+            trade_engine.check_live_binance_balance()
+            msg = f"{new_mode} Active! Account verified (USDT: ${trade_engine.live_usdt_balance:.2f})"
+        elif r is not None:
             connected = False
-            msg = f"Connection error: {e}"
+            trade_engine.exchange_connected = False
+            try:
+                err_json = r.json()
+                code = err_json.get("code")
+                api_msg = err_json.get("msg", r.text[:80])
+                if code == -2015:
+                    msg = "Binance Auth Failed (-2015): Invalid API-key, IP restriction, or missing Spot permission."
+                else:
+                    msg = f"Binance Auth Failed ({code}): {api_msg}"
+            except Exception:
+                msg = f"Binance Auth Failed: {r.text[:80]}"
+        else:
+            connected = False
+            trade_engine.exchange_connected = False
+            msg = f"Connection error: {err}"
     else:
         connected = True
         trade_engine.exchange_connected = True
@@ -580,6 +585,7 @@ async def toggle_trading_mode(req: ModeToggleRequest):
         "success": True,
         "trading_mode": trade_engine.trading_mode,
         "is_real_trading": trade_engine.trading_mode == "BINANCE_LIVE",
+        "is_testnet": trade_engine.trading_mode == "BINANCE_TESTNET",
         "connected": connected,
         "message": msg,
         "account": trade_engine.get_account_summary()
@@ -598,36 +604,47 @@ async def update_exchange_config(req: ExchangeConfigRequest):
     save_env_config(key=trade_engine.binance_api_key, secret=trade_engine.binance_api_secret, mode=req.trading_mode)
 
     connected = False
-    msg = "Realistic Paper Trading Mode Active (Live Binance Market Depth & Order Flow)"
+    msg = ""
     if req.trading_mode in ["BINANCE_TESTNET", "BINANCE_LIVE"]:
-        try:
-            import requests, time, hmac, hashlib
-            server_ts = requests.get("https://api.binance.com/api/v3/time", timeout=5).json().get("serverTime", int(time.time() * 1000))
-            query = f"timestamp={server_ts}&recvWindow=60000"
-            sig = hmac.new(trade_engine.binance_api_secret.encode("utf-8"), query.encode("utf-8"), hashlib.sha256).hexdigest()
-            headers = {"X-MBX-APIKEY": trade_engine.binance_api_key}
-            r = requests.get(f"https://api.binance.com/api/v3/account?{query}&signature={sig}", headers=headers, timeout=6)
-            if r.status_code == 200:
+        if not trade_engine.binance_api_key or not trade_engine.binance_api_secret:
+            connected = False
+            msg = f"{req.trading_mode} selected, but API Key / Secret is missing. Please paste your Binance keys above."
+        else:
+            r, err = trade_engine.binance_signed_request("/api/v3/account", method="GET", timeout=12)
+            if r is not None and r.status_code == 200:
                 connected = True
                 trade_engine.exchange_connected = True
+                trade_engine.last_balance_check = 0
                 trade_engine.check_live_binance_balance()
-                msg = f"{req.trading_mode} Authenticated: Live Binance Account Connected! (USDT: ${trade_engine.live_usdt_balance:.2f})"
+                msg = f"{req.trading_mode} Authenticated: Binance Spot Account Connected! (USDT: ${trade_engine.live_usdt_balance:.2f})"
+            elif r is not None:
+                connected = False
+                trade_engine.exchange_connected = False
+                try:
+                    err_json = r.json()
+                    code = err_json.get("code")
+                    api_msg = err_json.get("msg", r.text[:80])
+                    if code == -2015:
+                        msg = "Binance Auth Error (-2015): Invalid API-key, IP restriction, or missing Spot Trading permission. Verify permissions in Binance API Management."
+                    else:
+                        msg = f"Binance Error ({code}): {api_msg}"
+                except Exception:
+                    msg = f"Binance Error ({r.status_code}): {r.text[:80]}"
             else:
                 connected = False
                 trade_engine.exchange_connected = False
-                msg = f"Binance Auth Error: {r.json().get('msg', r.text[:80])}"
-        except Exception as e:
-            connected = False
-            msg = f"Connection failed: {e}"
+                msg = f"Connection timeout: {err}. Binance clusters unreachable within 12s."
     else:
         connected = True
         trade_engine.exchange_connected = True
-        
+        msg = "Demo Paper Trading Active ($200 Virtual Capital - Zero Risk)"
+
     trade_engine.exchange_connected = connected
     return {
         "success": True,
         "trading_mode": trade_engine.trading_mode,
         "is_real_trading": trade_engine.trading_mode == "BINANCE_LIVE",
+        "is_testnet": trade_engine.trading_mode == "BINANCE_TESTNET",
         "connected": connected,
         "message": msg,
         "account": trade_engine.get_account_summary()

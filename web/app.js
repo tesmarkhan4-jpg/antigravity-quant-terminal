@@ -153,6 +153,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const modalExchangeBadge = document.getElementById("modalExchangeBadge");
   const modalWalletTotal = document.getElementById("modalWalletTotal");
   const walletAssetsTableBody = document.getElementById("walletAssetsTableBody");
+  const modalStatusBanner = document.getElementById("modalStatusBanner");
 
   // =========================================================================
   // 1. TRADINGVIEW LIGHTWEIGHT CHARTS (CYBER-QUANT DARK THEME)
@@ -1308,8 +1309,12 @@ document.addEventListener("DOMContentLoaded", () => {
   if (saveSettingsBtn) {
     saveSettingsBtn.addEventListener("click", async () => {
       try {
-        saveSettingsBtn.textContent = "Saving...";
+        saveSettingsBtn.textContent = "Verifying & Saving...";
         saveSettingsBtn.disabled = true;
+        if (modalStatusBanner) {
+          modalStatusBanner.style.display = "none";
+          modalStatusBanner.textContent = "";
+        }
 
         const mode = tradingModeSelect ? tradingModeSelect.value : "SIMULATED_PAPER";
         const binanceKey = binanceApiKeyInput ? binanceApiKeyInput.value.trim() : "";
@@ -1342,15 +1347,46 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         const data = await res.json();
 
-        settingsModal.classList.add("hidden");
         playNotificationSound();
         if (data.success) {
           syncModeButtons(data.trading_mode, data.account);
-          alert(`Configuration Saved Successfully!\n\nActive Mode: ${data.trading_mode}\nBinance Status: ${data.message}`);
+          if (modalExchangeBadge) modalExchangeBadge.textContent = (data.trading_mode || "SIMULATED_PAPER").replace(/_/g, " ");
+
+          if (modalStatusBanner) {
+            modalStatusBanner.style.display = "block";
+            if (data.connected) {
+              modalStatusBanner.style.background = "rgba(16, 185, 129, 0.15)";
+              modalStatusBanner.style.border = "1px solid #10B981";
+              modalStatusBanner.style.color = "#34D399";
+              modalStatusBanner.innerHTML = `<strong>✓ Configuration Applied!</strong><br>${data.message}`;
+              // Gracefully close modal after 1.5 seconds on verified connection
+              setTimeout(() => {
+                settingsModal.classList.add("hidden");
+              }, 1500);
+            } else {
+              modalStatusBanner.style.background = "rgba(245, 158, 11, 0.15)";
+              modalStatusBanner.style.border = "1px solid #F59E0B";
+              modalStatusBanner.style.color = "#FCD34D";
+              modalStatusBanner.innerHTML = `<strong>⚠️ Mode Saved: ${data.trading_mode}</strong><br>${data.message}`;
+            }
+          }
+
+          // Fetch updated wallet balances
+          const wRes = await fetch("/api/binance_wallet");
+          const wData = await wRes.json();
+          if (wData.success && wData.wallet_assets) {
+            renderWalletAssetsModal(wData.wallet_assets, wData.live_usdt_balance);
+          }
         }
       } catch (err) {
         console.error("Save settings error:", err);
-        alert("Failed to save settings: " + err.message);
+        if (modalStatusBanner) {
+          modalStatusBanner.style.display = "block";
+          modalStatusBanner.style.background = "rgba(239, 68, 68, 0.15)";
+          modalStatusBanner.style.border = "1px solid #EF4444";
+          modalStatusBanner.style.color = "#FCA5A5";
+          modalStatusBanner.innerHTML = `<strong>Failed to save settings:</strong> ${err.message}`;
+        }
       } finally {
         saveSettingsBtn.textContent = "Save & Apply Configuration";
         saveSettingsBtn.disabled = false;
