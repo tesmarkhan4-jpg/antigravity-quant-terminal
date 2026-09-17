@@ -337,7 +337,13 @@ class TradeEngine:
             "quantity": qty,
             "original_quantity": qty,
             "remaining_quantity": qty,
+            "notional_usd": notional_value,
+            "trade_amount_usd": notional_value,
+            "trade_amount_pkr": round(notional_value * PKR_RATE, 0),
             "margin_usd": margin_required,
+            "margin_pkr": round(margin_required * PKR_RATE, 0),
+            "risk_usd": round(risk_usd, 2),
+            "risk_pkr": round(risk_usd * PKR_RATE, 0),
             "leverage": "5x",
             "tp": calc_tp2,
             "tp1": calc_tp1,
@@ -394,7 +400,11 @@ class TradeEngine:
         }
         learning_engine.record_trade_snapshot(position_id, symbol, position_type, current_price, snap, reason)
 
-        return {"success": True, "message": f"Opened {position_type} on {symbol} in Slot {slot_num} ({self.trading_mode})", "position": new_pos}
+        return {
+            "success": True,
+            "message": f"Opened {position_type} on {symbol} in Slot {slot_num} | Trade Size: ${notional_value:.2f} ({qty} {symbol.replace('USDT','')}) | Max Risk: ${risk_usd:.2f} ({self.trading_mode})",
+            "position": new_pos
+        }
 
     def update_positions_on_tick(self, symbol: str, current_price: float) -> List[Dict[str, Any]]:
         """
@@ -622,7 +632,11 @@ class TradeEngine:
             "type": pos["type"],
             "entry_price": pos["entry_price"],
             "exit_price": exit_price,
-            "quantity": pos["quantity"],
+            "quantity": pos.get("original_quantity", pos.get("quantity", 0)),
+            "notional_usd": pos.get("notional_usd", round(pos.get("quantity", 0) * pos["entry_price"], 2)),
+            "trade_amount_usd": pos.get("trade_amount_usd", pos.get("notional_usd", round(pos.get("quantity", 0) * pos["entry_price"], 2))),
+            "margin_usd": pos.get("margin_usd", 0.0),
+            "risk_usd": pos.get("risk_usd", 2.00),
             "realized_pnl": total_pnl,
             "realized_pnl_pkr": realized_pnl_pkr,
             "outcome": outcome,

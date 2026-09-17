@@ -157,6 +157,40 @@ document.addEventListener("DOMContentLoaded", () => {
   const walletAssetsTableBody = document.getElementById("walletAssetsTableBody");
   const modalStatusBanner = document.getElementById("modalStatusBanner");
 
+  let knownPositionIds = new Set();
+  let hasInitialPositionsLoaded = false;
+
+  function showTradePlacedToast(title, details, type = "success") {
+    let container = document.getElementById("tradeToastContainer");
+    if (!container) {
+      container = document.createElement("div");
+      container.id = "tradeToastContainer";
+      container.className = "trade-toast-container";
+      document.body.appendChild(container);
+    }
+    const toast = document.createElement("div");
+    toast.className = `trade-toast ${type}`;
+    toast.innerHTML = `
+      <div class="toast-header">
+        <span class="toast-icon">⚡</span>
+        <span class="toast-title">${title}</span>
+        <button class="toast-close-btn">&times;</button>
+      </div>
+      <div class="toast-body">${details}</div>
+    `;
+    container.appendChild(toast);
+    const closeBtn = toast.querySelector(".toast-close-btn");
+    if (closeBtn) {
+      closeBtn.addEventListener("click", () => toast.remove());
+    }
+    setTimeout(() => {
+      if (toast.parentNode) {
+        toast.classList.add("fade-out");
+        setTimeout(() => toast.remove(), 400);
+      }
+    }, 6500);
+  }
+
   // =========================================================================
   // 1. TRADINGVIEW LIGHTWEIGHT CHARTS (CYBER-QUANT DARK THEME)
   // =========================================================================
@@ -357,6 +391,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 10. Tables: Positions & History
     if (data.positions) {
+      if (hasInitialPositionsLoaded) {
+        data.positions.forEach(pos => {
+          if (!knownPositionIds.has(pos.id)) {
+            playNotificationSound();
+            const baseAsset = (pos.symbol || "").replace("USDT", "");
+            const notional = pos.notional_usd || (pos.quantity * pos.entry_price) || 0;
+            const risk = pos.risk_usd || 2.00;
+            showTradePlacedToast(
+              `⚡ Trade Placed: Slot ${pos.slot_num || 1} (${pos.type} ${pos.symbol})`,
+              `<strong>Trade Amount:</strong> $${notional.toFixed(2)} (${pos.quantity} ${baseAsset})<br>
+               <strong>Max Risk:</strong> $${risk.toFixed(2)} (560 PKR)`
+            );
+          }
+        });
+      }
+      knownPositionIds = new Set(data.positions.map(p => p.id));
+      hasInitialPositionsLoaded = true;
       renderPositionsTable(data.positions);
     }
     if (data.history) {
@@ -677,6 +728,11 @@ document.addEventListener("DOMContentLoaded", () => {
       ? `<button class="btn-close-pos btn-profit-take" data-id="${pos.id}">⚡ Lock Profit (${pkrText})</button>`
       : `<button class="btn-close-pos" data-id="${pos.id}">Close</button>`;
 
+    const baseAsset = (pos.symbol || "").replace("USDT", "");
+    const notionalUsd = pos.notional_usd || (pos.quantity * pos.entry_price) || 0;
+    const riskUsd = pos.risk_usd || 2.00;
+    const riskPkr = pos.risk_pkr || Math.round(riskUsd * 280);
+
     return `
       <div class="active-slot-details">
         <div class="slot-sym-row">
@@ -684,6 +740,19 @@ document.addEventListener("DOMContentLoaded", () => {
           ${closeBtnHtml}
         </div>
         ${pos.breakeven_locked ? '<div class="shield-tag"><span class="shield-icon">🛡️</span> Breakeven Shield Active (0 Risk)</div>' : ''}
+        
+        <!-- Dedicated Trade Placed & Risk Banner -->
+        <div class="slot-trade-amount-banner">
+          <div class="trade-amount-col">
+            <span class="trade-amount-label">Trade Placed:</span>
+            <span class="trade-amount-val mono">$${notionalUsd.toFixed(2)} <span class="text-muted" style="font-size:0.72rem;">(${pos.quantity} ${baseAsset})</span></span>
+          </div>
+          <div class="trade-risk-col">
+            <span class="trade-risk-label">Max Risk:</span>
+            <span class="trade-risk-val mono" style="color:#F87171;">$${riskUsd.toFixed(2)} <span class="text-muted" style="font-size:0.72rem;">(${riskPkr} PKR)</span></span>
+          </div>
+        </div>
+
         <div class="slot-meta-row">
           Entry: <strong class="mono text-white">${formatCryptoPrice(pos.entry_price)}</strong> | Live: <strong class="mono text-white">${formatCryptoPrice(pos.current_price)}</strong>
         </div>
@@ -969,7 +1038,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!positions || positions.length === 0) {
       positionsTableBody.innerHTML = `
         <tr class="empty-row">
-          <td colspan="11">No active positions. Dual-bid auto execution will appear here.</td>
+          <td colspan="12">No active positions. Dual-bid auto execution will appear here.</td>
         </tr>`;
       return;
     }
@@ -979,16 +1048,27 @@ document.addEventListener("DOMContentLoaded", () => {
       const row = document.createElement("tr");
       const isLong = pos.type === "LONG";
       const pnlClass = pos.unrealized_pnl >= 0 ? "text-success mono" : "text-danger mono";
+      const baseAsset = (pos.symbol || "").replace("USDT", "");
+      const notionalUsd = pos.notional_usd || (pos.quantity * pos.entry_price) || 0;
+      const riskUsd = pos.risk_usd || 2.00;
+      const riskPkr = pos.risk_pkr || Math.round(riskUsd * 280);
 
       row.innerHTML = `
         <td><strong style="color: #6366F1;">Slot ${pos.slot_num || 1}</strong></td>
         <td><strong class="mono text-white">${pos.id}</strong></td>
         <td><span class="pos-type-tag ${isLong ? 'long' : 'short'}">${pos.type}</span></td>
         <td><strong class="text-white">${pos.symbol}</strong></td>
+        <td>
+          <div class="mono font-semibold" style="color: #38BDF8; font-size: 0.82rem;">$${notionalUsd.toFixed(2)}</div>
+          <div class="mono text-muted" style="font-size: 0.68rem;">${pos.quantity} ${baseAsset}</div>
+        </td>
         <td class="mono">${formatCryptoPrice(pos.entry_price)}</td>
         <td class="mono">${formatCryptoPrice(pos.current_price)}</td>
         <td class="text-success mono font-semibold">${formatCryptoPrice(pos.tp)}</td>
-        <td class="text-danger mono font-semibold">${formatCryptoPrice(pos.sl)}</td>
+        <td>
+          <div class="text-danger mono font-semibold">${formatCryptoPrice(pos.sl)}</div>
+          <div class="mono" style="font-size: 0.68rem; color: #FCA5A5;">Max Loss: $${riskUsd.toFixed(2)} (${riskPkr} PKR)</div>
+        </td>
         <td class="${pnlClass}"><strong>${pos.unrealized_pnl >= 0 ? "+" : ""}$${pos.unrealized_pnl.toFixed(2)}</strong> (${pos.roi_pct}%)</td>
         <td class="${pnlClass}">${pos.unrealized_pnl_pkr >= 0 ? "+" : ""}${Math.round(pos.unrealized_pnl_pkr).toLocaleString()} PKR</td>
         <td>
@@ -1006,7 +1086,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!history || history.length === 0) {
       historyTableBody.innerHTML = `
         <tr class="empty-row">
-          <td colspan="7">Trade execution history will be recorded here.</td>
+          <td colspan="8">Trade execution history will be recorded here.</td>
         </tr>`;
       return;
     }
@@ -1015,11 +1095,17 @@ document.addEventListener("DOMContentLoaded", () => {
     history.slice(0, 10).forEach(trd => {
       const row = document.createElement("tr");
       const pnlClass = trd.realized_pnl >= 0 ? "text-success mono" : "text-danger mono";
+      const baseAsset = (trd.symbol || "").replace("USDT", "");
+      const notionalUsd = trd.notional_usd || (trd.quantity * trd.entry_price) || (trd.quantity * trd.exit_price) || 0;
 
       row.innerHTML = `
         <td class="mono text-muted">${trd.close_time}</td>
         <td><strong class="mono text-white">${trd.id} <span style="font-size:0.7rem; color:#818CF8; font-weight:700;">(${trd.symbol || ''})</span></strong></td>
         <td><span class="pos-type-tag ${trd.type === 'LONG' ? 'long' : 'short'}">${trd.type}</span></td>
+        <td>
+          <span class="mono font-semibold" style="color: #38BDF8;">$${notionalUsd > 0 ? notionalUsd.toFixed(2) : '-'}</span>
+          ${trd.quantity ? `<span class="mono text-muted" style="font-size: 0.68rem;"> (${trd.quantity} ${baseAsset})</span>` : ''}
+        </td>
         <td class="mono">${formatCryptoPrice(trd.exit_price)}</td>
         <td><span class="badge-tag ${trd.outcome === 'TAKE_PROFIT' || trd.outcome.includes('PROFIT') || trd.realized_pnl > 0 ? 'success' : ''}">${trd.outcome}</span></td>
         <td class="${pnlClass}"><strong>${trd.realized_pnl >= 0 ? "+" : ""}$${trd.realized_pnl.toFixed(2)}</strong></td>
@@ -1142,8 +1228,20 @@ document.addEventListener("DOMContentLoaded", () => {
           })
         });
         const json = await res.json();
-        if (json.success) playNotificationSound();
-        else alert(json.message);
+        if (json.success) {
+          playNotificationSound();
+          const p = json.position || {};
+          const base = (p.symbol || currentSymbol || "").replace("USDT", "");
+          const notional = p.notional_usd || (p.quantity && p.entry_price ? p.quantity * p.entry_price : 0);
+          const risk = p.risk_usd || 2.00;
+          showTradePlacedToast(
+            `🚀 Trade Placed: Slot ${p.slot_num || 1} (${p.type || 'LONG'} ${p.symbol || currentSymbol})`,
+            `<strong>Amount Placed:</strong> $${notional.toFixed(2)} (${p.quantity || '-'} ${base})<br>
+             <strong>Entry:</strong> $${formatCryptoPrice(p.entry_price || latestPrice)} | <strong>Max Risk:</strong> $${risk.toFixed(2)} (560 PKR)`
+          );
+        } else {
+          alert(json.message);
+        }
       } catch (err) {
         console.error("Manual Long Error:", err);
       } finally {
@@ -1176,8 +1274,20 @@ document.addEventListener("DOMContentLoaded", () => {
           })
         });
         const json = await res.json();
-        if (json.success) playNotificationSound();
-        else alert(json.message);
+        if (json.success) {
+          playNotificationSound();
+          const p = json.position || {};
+          const base = (p.symbol || currentSymbol || "").replace("USDT", "");
+          const notional = p.notional_usd || (p.quantity && p.entry_price ? p.quantity * p.entry_price : 0);
+          const risk = p.risk_usd || 2.00;
+          showTradePlacedToast(
+            `🚀 Trade Placed: Slot ${p.slot_num || 1} (${p.type || 'SHORT'} ${p.symbol || currentSymbol})`,
+            `<strong>Amount Placed:</strong> $${notional.toFixed(2)} (${p.quantity || '-'} ${base})<br>
+             <strong>Entry:</strong> $${formatCryptoPrice(p.entry_price || latestPrice)} | <strong>Max Risk:</strong> $${risk.toFixed(2)} (560 PKR)`
+          );
+        } else {
+          alert(json.message);
+        }
       } catch (err) {
         console.error("Manual Short Error:", err);
       } finally {
