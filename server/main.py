@@ -68,9 +68,11 @@ class CloseRequest(BaseModel):
     price: float = 0.0
 
 class SettingsRequest(BaseModel):
-    auto_trade: bool
-    risk_pct: float
-    gemini_key: str = ""
+    auto_trade: bool = True
+    risk_pct: float = 1.0
+    gemini_key: Optional[str] = ""
+    pkr_rate: Optional[float] = None
+    daily_target_pkr: Optional[float] = None
 
 class ExchangeConfigRequest(BaseModel):
     trading_mode: str  # "SIMULATED_PAPER", "BINANCE_TESTNET", "BINANCE_LIVE"
@@ -453,6 +455,13 @@ def reset_account():
 def update_settings(settings: SettingsRequest):
     trade_engine.auto_trade_enabled = settings.auto_trade
     trade_engine.risk_per_trade_percent = max(min(settings.risk_pct, 5.0), 0.5)
+    if settings.pkr_rate and settings.pkr_rate > 0:
+        global PKR_RATE
+        PKR_RATE = settings.pkr_rate
+        trade_engine.pkr_rate = settings.pkr_rate
+    if settings.daily_target_pkr and settings.daily_target_pkr > 0:
+        trade_engine.daily_target_pkr_max = settings.daily_target_pkr
+        trade_engine.daily_target_pkr_min = settings.daily_target_pkr * 0.5
     if settings.gemini_key:
         ai_brain.anthropic_key = settings.gemini_key
     return {"success": True, "account": trade_engine.get_account_summary()}

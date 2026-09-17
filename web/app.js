@@ -140,11 +140,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const openSettingsBtn = document.getElementById("openSettingsBtn");
   const settingsModal = document.getElementById("settingsModal");
   const closeModalBtn = document.getElementById("closeModalBtn");
+  const cancelSettingsBtn = document.getElementById("cancelSettingsBtn");
   const saveSettingsBtn = document.getElementById("saveSettingsBtn");
-  const geminiApiKeyInput = document.getElementById("geminiApiKeyInput");
   const tradingModeSelect = document.getElementById("tradingModeSelect");
-  const binanceApiKeyInput = document.getElementById("binanceApiKeyInput");
-  const binanceApiSecretInput = document.getElementById("binanceApiSecretInput");
+  const binanceApiKeyInput = document.getElementById("apiKeyInput") || document.getElementById("binanceApiKeyInput");
+  const binanceApiSecretInput = document.getElementById("apiSecretInput") || document.getElementById("binanceApiSecretInput");
+  const pkrRateInput = document.getElementById("pkrRateInput");
+  const dailyTargetPkrInput = document.getElementById("dailyTargetPkrInput");
+  const maxRiskPctInput = document.getElementById("maxRiskPctInput");
   const testExchangeBtn = document.getElementById("testExchangeBtn");
   const exchangeStatusMsg = document.getElementById("exchangeStatusMsg");
   const modalExchangeBadge = document.getElementById("modalExchangeBadge");
@@ -1264,6 +1267,11 @@ document.addEventListener("DOMContentLoaded", () => {
         if (cfg.has_keys && binanceApiSecretInput) {
           binanceApiSecretInput.placeholder = "Active in System (••••••••••••••••)";
         }
+        if (cfg.account) {
+          if (pkrRateInput && cfg.account.pkr_rate) pkrRateInput.value = cfg.account.pkr_rate;
+          if (dailyTargetPkrInput && cfg.account.daily_target_pkr_max) dailyTargetPkrInput.value = cfg.account.daily_target_pkr_max;
+          if (maxRiskPctInput && cfg.account.risk_per_trade_pct) maxRiskPctInput.value = cfg.account.risk_per_trade_pct;
+        }
         if (exchangeStatusMsg) {
           if (cfg.exchange_connected) {
             exchangeStatusMsg.textContent = `Online: Binance API Connected (${cfg.trading_mode})`;
@@ -1290,6 +1298,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (walletBalanceChip) walletBalanceChip.addEventListener("click", loadSettingsData);
 
   if (closeModalBtn) closeModalBtn.addEventListener("click", () => settingsModal.classList.add("hidden"));
+  if (cancelSettingsBtn) cancelSettingsBtn.addEventListener("click", () => settingsModal.classList.add("hidden"));
   if (settingsModal) {
     settingsModal.addEventListener("click", (e) => {
       if (e.target === settingsModal) settingsModal.classList.add("hidden");
@@ -1298,37 +1307,53 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (saveSettingsBtn) {
     saveSettingsBtn.addEventListener("click", async () => {
-      const key = geminiApiKeyInput.value.trim();
-      const mode = tradingModeSelect ? tradingModeSelect.value : "SIMULATED_PAPER";
-      const binanceKey = binanceApiKeyInput ? binanceApiKeyInput.value.trim() : "";
-      const binanceSecret = binanceApiSecretInput ? binanceApiSecretInput.value.trim() : "";
+      try {
+        saveSettingsBtn.textContent = "Saving...";
+        saveSettingsBtn.disabled = true;
 
-      await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          auto_trade: autoTradeToggle.checked,
-          risk_pct: parseFloat(riskSlider.value),
-          gemini_key: key
-        })
-      });
+        const mode = tradingModeSelect ? tradingModeSelect.value : "SIMULATED_PAPER";
+        const binanceKey = binanceApiKeyInput ? binanceApiKeyInput.value.trim() : "";
+        const binanceSecret = binanceApiSecretInput ? binanceApiSecretInput.value.trim() : "";
+        const pkrRate = pkrRateInput ? parseFloat(pkrRateInput.value) : 280;
+        const dailyTarget = dailyTargetPkrInput ? parseFloat(dailyTargetPkrInput.value) : 3000;
+        const riskPct = maxRiskPctInput ? parseFloat(maxRiskPctInput.value) : (riskSlider ? parseFloat(riskSlider.value) : 1.0);
 
-      const res = await fetch("/api/exchange_config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          trading_mode: mode,
-          binance_api_key: binanceKey,
-          binance_api_secret: binanceSecret
-        })
-      });
-      const data = await res.json();
+        // 1. Save general risk & settings
+        await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            auto_trade: autoTradeToggle ? autoTradeToggle.checked : true,
+            risk_pct: riskPct,
+            pkr_rate: pkrRate,
+            daily_target_pkr: dailyTarget
+          })
+        });
 
-      settingsModal.classList.add("hidden");
-      playNotificationSound();
-      if (data.success) {
-        syncModeButtons(data.trading_mode, data.account);
-        alert(`Preferences & Exchange Configuration Saved!\nActive Mode: ${data.trading_mode}\nBinance Status: ${data.message}`);
+        // 2. Save exchange configuration
+        const res = await fetch("/api/exchange_config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            trading_mode: mode,
+            binance_api_key: binanceKey,
+            binance_api_secret: binanceSecret
+          })
+        });
+        const data = await res.json();
+
+        settingsModal.classList.add("hidden");
+        playNotificationSound();
+        if (data.success) {
+          syncModeButtons(data.trading_mode, data.account);
+          alert(`Configuration Saved Successfully!\n\nActive Mode: ${data.trading_mode}\nBinance Status: ${data.message}`);
+        }
+      } catch (err) {
+        console.error("Save settings error:", err);
+        alert("Failed to save settings: " + err.message);
+      } finally {
+        saveSettingsBtn.textContent = "Save & Apply Configuration";
+        saveSettingsBtn.disabled = false;
       }
     });
   }
