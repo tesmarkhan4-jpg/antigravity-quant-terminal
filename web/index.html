@@ -13,7 +13,7 @@
   <!-- TradingView Lightweight Charts -->
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
   
-  <link rel="stylesheet" href="styles.css?v=4.9">
+  <link rel="stylesheet" href="styles.css?v=5.0">
 </head>
 <body class="theme-quant-dark">
   <!-- Circuit Breaker Emergency Banner -->
@@ -624,75 +624,95 @@
     <!-- =================================================================== -->
     <!-- BOTTOM SECTION: Active Positions & Trade Execution Log              -->
     <!-- =================================================================== -->
-    <section class="bottom-tables-grid">
-      
-      <!-- Active Positions Detailed Table -->
-      <div class="card glass-panel table-card">
-        <div class="card-header">
-          <div class="card-title-group">
-            <span class="card-icon">💼</span>
-            <h2 class="card-title">Active Dual-Slot Positions</h2>
-          </div>
-          <span class="badge-tag" id="activePositionsCount">0 Active</span>
+    <section class="bottom-tables-section">
+      <!-- Section Header with View Mode Switcher -->
+      <div class="bottom-section-header">
+        <div class="bottom-section-title">
+          <span class="section-icon">📑</span>
+          <span class="section-heading">Live Settlement Desk</span>
         </div>
-
-        <div class="table-container">
-          <table class="styled-table">
-            <thead>
-              <tr>
-                <th>Slot</th>
-                <th>ID</th>
-                <th>Type</th>
-                <th>Symbol</th>
-                <th>Trade Placed (Size)</th>
-                <th>Entry Price</th>
-                <th>Live Price</th>
-                <th>TP Level</th>
-                <th>SL Guard (Max $2 Risk)</th>
-                <th>PnL (USD)</th>
-                <th>PnL (PKR)</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody id="positionsTableBody">
-              <tr class="empty-row">
-                <td colspan="12">No active positions. Dual-bid auto execution will appear here.</td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="table-view-switcher">
+          <button id="btnViewStacked" class="view-switch-btn active" title="View both Active Positions and Execution History stacked in full width">
+            <span>📚 Stacked (Both Full Width)</span>
+          </button>
+          <button id="btnViewPositions" class="view-switch-btn" title="Focus on Active Dual-Slot Positions only">
+            <span>💼 Active Positions</span>
+          </button>
+          <button id="btnViewHistory" class="view-switch-btn" title="Focus on Execution History & Log only">
+            <span>📜 Execution History</span>
+          </button>
         </div>
       </div>
 
-      <!-- Closed Execution Log & History Table -->
-      <div class="card glass-panel table-card">
-        <div class="card-header">
-          <div class="card-title-group">
-            <span class="card-icon">📜</span>
-            <h2 class="card-title">Execution Log & Realized History</h2>
+      <div class="bottom-tables-container" id="bottomTablesContainer">
+        <!-- Active Positions Detailed Table -->
+        <div class="card glass-panel table-card" id="cardActivePositions">
+          <div class="card-header">
+            <div class="card-title-group">
+              <span class="card-icon">💼</span>
+              <h2 class="card-title">Active Dual-Slot Positions</h2>
+            </div>
+            <span class="badge-tag" id="activePositionsCount">0 Active</span>
           </div>
-          <span class="badge-tag">Recent Closed Trades</span>
+
+          <div class="table-container">
+            <table class="styled-table positions-table">
+              <thead>
+                <tr>
+                  <th>Slot</th>
+                  <th>ID</th>
+                  <th>Type</th>
+                  <th>Symbol</th>
+                  <th>Trade Placed (Size)</th>
+                  <th>Entry Price</th>
+                  <th>Live Price</th>
+                  <th>TP Level</th>
+                  <th>SL Guard (Max $2 Risk)</th>
+                  <th>PnL (USD)</th>
+                  <th>PnL (PKR)</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="positionsTableBody">
+                <tr class="empty-row">
+                  <td colspan="12">No active positions. Dual-bid auto execution will appear here.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        <div class="table-container">
-          <table class="styled-table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>ID</th>
-                <th>Type</th>
-                <th>Trade Placed (Size)</th>
-                <th>Exit Price</th>
-                <th>Outcome</th>
-                <th>Realized USD</th>
-                <th>Realized PKR</th>
-              </tr>
-            </thead>
-            <tbody id="historyTableBody">
-              <tr class="empty-row">
-                <td colspan="8">Trade execution history will be recorded here.</td>
-              </tr>
-            </tbody>
-          </table>
+        <!-- Closed Execution Log & History Table -->
+        <div class="card glass-panel table-card" id="cardExecutionHistory">
+          <div class="card-header">
+            <div class="card-title-group">
+              <span class="card-icon">📜</span>
+              <h2 class="card-title">Execution Log & Realized History</h2>
+            </div>
+            <span class="badge-tag">Recent Closed Trades</span>
+          </div>
+
+          <div class="table-container">
+            <table class="styled-table history-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>ID</th>
+                  <th>Type</th>
+                  <th>Trade Placed (Size)</th>
+                  <th>Exit Price</th>
+                  <th>Outcome</th>
+                  <th>Realized USD</th>
+                  <th>Realized PKR</th>
+                </tr>
+              </thead>
+              <tbody id="historyTableBody">
+                <tr class="empty-row">
+                  <td colspan="8">Trade execution history will be recorded here.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -798,6 +818,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=4.9"></script>
+  <script src="app.js?v=5.0"></script>
 </body>
 </html>

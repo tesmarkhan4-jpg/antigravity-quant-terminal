@@ -1320,6 +1320,37 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // =========================================================================
+  // BOTTOM TABLES DESK VIEW SWITCHER
+  // =========================================================================
+  const btnViewStacked = document.getElementById("btnViewStacked");
+  const btnViewPositions = document.getElementById("btnViewPositions");
+  const btnViewHistory = document.getElementById("btnViewHistory");
+  const cardActivePositions = document.getElementById("cardActivePositions");
+  const cardExecutionHistory = document.getElementById("cardExecutionHistory");
+
+  function setBottomTableView(mode) {
+    if (!cardActivePositions || !cardExecutionHistory) return;
+    if (btnViewStacked) btnViewStacked.classList.toggle("active", mode === "stacked");
+    if (btnViewPositions) btnViewPositions.classList.toggle("active", mode === "positions");
+    if (btnViewHistory) btnViewHistory.classList.toggle("active", mode === "history");
+
+    if (mode === "positions") {
+      cardActivePositions.style.display = "block";
+      cardExecutionHistory.style.display = "none";
+    } else if (mode === "history") {
+      cardActivePositions.style.display = "none";
+      cardExecutionHistory.style.display = "block";
+    } else {
+      cardActivePositions.style.display = "block";
+      cardExecutionHistory.style.display = "block";
+    }
+  }
+
+  if (btnViewStacked) btnViewStacked.addEventListener("click", () => setBottomTableView("stacked"));
+  if (btnViewPositions) btnViewPositions.addEventListener("click", () => setBottomTableView("positions"));
+  if (btnViewHistory) btnViewHistory.addEventListener("click", () => setBottomTableView("history"));
+
   async function closePosition(positionId, btn) {
     if (btn) {
       btn.disabled = true;
