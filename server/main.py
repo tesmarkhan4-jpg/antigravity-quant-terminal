@@ -86,6 +86,17 @@ class ExchangeConfigRequest(BaseModel):
 async def startup_event():
     print("[Server] Starting High-Predictability Multi-Pair Scanner and Dual-Bid Engine...")
     asyncio.create_task(market_monitoring_loop())
+    asyncio.create_task(background_balance_sync_loop())
+
+async def background_balance_sync_loop():
+    """Refreshes Binance balance in threadpool every 20s without blocking HTTP event loop."""
+    while True:
+        try:
+            if trade_engine.trading_mode in ["BINANCE_LIVE", "BINANCE_TESTNET"] and trade_engine.exchange_connected:
+                await asyncio.to_thread(trade_engine.check_live_binance_balance)
+        except Exception:
+            pass
+        await asyncio.sleep(20.0)
 
 async def market_monitoring_loop():
     """Background task scanning all 12 pairs, order book depth, and gatekeeper rules."""
@@ -361,23 +372,25 @@ async def change_symbol(data: Dict[str, str]):
 
 @app.post("/api/order")
 async def place_order(order: OrderRequest):
-    res = trade_engine.open_position(
-        symbol=order.symbol,
-        position_type=order.type,
-        current_price=order.entry,
-        tp=order.tp,
-        sl=order.sl,
-        reason=order.reason,
-        tp1=order.tp1,
-        tp2=order.tp2,
-        tp3=order.tp3
+    res = await asyncio.to_thread(
+        trade_engine.open_position,
+        order.symbol,
+        order.type,
+        order.entry,
+        order.tp,
+        order.sl,
+        order.reason,
+        None,
+        order.tp1,
+        order.tp2,
+        order.tp3
     )
     return res
 
 @app.post("/api/close")
 async def close_order(data: CloseRequest):
     pos_id = data.position_id
-    closed = trade_engine.manual_close_position(pos_id)
+    closed = await asyncio.to_thread(trade_engine.manual_close_position, pos_id)
     if closed:
         account_summary = trade_engine.get_account_summary()
         learning_summary = learning_engine.get_learning_summary()
@@ -412,11 +425,7 @@ async def close_order(data: CloseRequest):
 
 @app.post("/api/close_all")
 async def close_all_orders():
-    closed_list = []
-    for pos in list(trade_engine.positions):
-        closed = trade_engine.manual_close_position(pos["id"])
-        if closed:
-            closed_list.append(closed)
+    closed_list = await asyncio.to_thread(trade_engine.close_all_positions)
             
     account_summary = trade_engine.get_account_summary()
     learning_summary = learning_engine.get_learning_summary()
@@ -444,6 +453,15 @@ async def close_all_orders():
         "positions": trade_engine.positions,
         "history": trade_engine.trade_history[:10],
         "learning": learning_summary
+    }
+
+@app.post("/api/reset_daily_target")
+def reset_daily_target():
+    trade_engine.reset_daily_target()
+    return {
+        "success": True,
+        "message": "Daily target reset. Autonomous trading resumed.",
+        "account": trade_engine.get_account_summary()
     }
 
 @app.post("/api/reset_account")

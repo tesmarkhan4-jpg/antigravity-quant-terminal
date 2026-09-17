@@ -132,9 +132,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const activePositionsCount = document.getElementById("activePositionsCount");
   const historyTableBody = document.getElementById("historyTableBody");
 
-  // Circuit Breaker
+  // Circuit Breaker & Daily Target Ceilings
   const circuitAlertBanner = document.getElementById("circuitAlertBanner");
   const resetCircuitBtn = document.getElementById("resetCircuitBtn");
+  const dailyTargetBanner = document.getElementById("dailyTargetBanner");
+  const resumeTargetBtn = document.getElementById("resumeTargetBtn");
 
   // Settings Modal
   const openSettingsBtn = document.getElementById("openSettingsBtn");
@@ -571,6 +573,16 @@ document.addEventListener("DOMContentLoaded", () => {
     if (circuitAlertBanner) {
       if (acc.circuit_breaker_triggered) circuitAlertBanner.classList.remove("hidden");
       else circuitAlertBanner.classList.add("hidden");
+    }
+
+    if (dailyTargetBanner) {
+      if (acc.daily_target_reached) {
+        dailyTargetBanner.style.display = "flex";
+        dailyTargetBanner.classList.remove("hidden");
+      } else {
+        dailyTargetBanner.style.display = "none";
+        dailyTargetBanner.classList.add("hidden");
+      }
     }
 
     // Render Wallet Assets in Modal
@@ -1107,49 +1119,96 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  btnManualLong.addEventListener("click", async () => {
-    if (!latestPrice) return;
-    const sl = latestAiData && latestAiData.sl > 0 ? latestAiData.sl : latestPrice * 0.99;
-    const tp = latestAiData && latestAiData.tp > 0 ? latestAiData.tp : latestPrice * 1.02;
+  if (btnManualLong) {
+    btnManualLong.addEventListener("click", async () => {
+      if (!latestPrice) return;
+      btnManualLong.disabled = true;
+      const prevText = btnManualLong.textContent;
+      btnManualLong.textContent = "Submitting...";
+      try {
+        const sl = latestAiData && latestAiData.sl > 0 ? latestAiData.sl : latestPrice * 0.99;
+        const tp = latestAiData && latestAiData.tp > 0 ? latestAiData.tp : latestPrice * 1.02;
 
-    const res = await fetch("/api/order", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        symbol: currentSymbol,
-        type: "LONG",
-        entry: latestPrice,
-        tp: tp,
-        sl: sl,
-        reason: "Manual Long Execution"
-      })
+        const res = await fetch("/api/order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            symbol: currentSymbol,
+            type: "LONG",
+            entry: latestPrice,
+            tp: tp,
+            sl: sl,
+            reason: "Manual Long Execution"
+          })
+        });
+        const json = await res.json();
+        if (json.success) playNotificationSound();
+        else alert(json.message);
+      } catch (err) {
+        console.error("Manual Long Error:", err);
+      } finally {
+        btnManualLong.disabled = false;
+        btnManualLong.textContent = prevText;
+      }
     });
-    const json = await res.json();
-    if (json.success) playNotificationSound();
-    else alert(json.message);
-  });
+  }
 
-  btnManualShort.addEventListener("click", async () => {
-    if (!latestPrice) return;
-    const sl = latestAiData && latestAiData.sl > 0 ? latestAiData.sl : latestPrice * 1.01;
-    const tp = latestAiData && latestAiData.tp > 0 ? latestAiData.tp : latestPrice * 0.98;
+  if (btnManualShort) {
+    btnManualShort.addEventListener("click", async () => {
+      if (!latestPrice) return;
+      btnManualShort.disabled = true;
+      const prevText = btnManualShort.textContent;
+      btnManualShort.textContent = "Submitting...";
+      try {
+        const sl = latestAiData && latestAiData.sl > 0 ? latestAiData.sl : latestPrice * 1.01;
+        const tp = latestAiData && latestAiData.tp > 0 ? latestAiData.tp : latestPrice * 0.98;
 
-    const res = await fetch("/api/order", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        symbol: currentSymbol,
-        type: "SHORT",
-        entry: latestPrice,
-        tp: tp,
-        sl: sl,
-        reason: "Manual Short Execution"
-      })
+        const res = await fetch("/api/order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            symbol: currentSymbol,
+            type: "SHORT",
+            entry: latestPrice,
+            tp: tp,
+            sl: sl,
+            reason: "Manual Short Execution"
+          })
+        });
+        const json = await res.json();
+        if (json.success) playNotificationSound();
+        else alert(json.message);
+      } catch (err) {
+        console.error("Manual Short Error:", err);
+      } finally {
+        btnManualShort.disabled = false;
+        btnManualShort.textContent = prevText;
+      }
     });
-    const json = await res.json();
-    if (json.success) playNotificationSound();
-    else alert(json.message);
-  });
+  }
+
+  if (resumeTargetBtn) {
+    resumeTargetBtn.addEventListener("click", async () => {
+      resumeTargetBtn.disabled = true;
+      resumeTargetBtn.textContent = "Resuming...";
+      try {
+        const res = await fetch("/api/reset_daily_target", { method: "POST" });
+        const data = await res.json();
+        if (data.success && data.account) {
+          updateAccountUI(data.account);
+          if (dailyTargetBanner) {
+            dailyTargetBanner.style.display = "none";
+            dailyTargetBanner.classList.add("hidden");
+          }
+        }
+      } catch (err) {
+        console.error("Resume error:", err);
+      } finally {
+        resumeTargetBtn.disabled = false;
+        resumeTargetBtn.textContent = "Resume / Next Session";
+      }
+    });
+  }
 
   async function closePosition(positionId, btn) {
     if (btn) {

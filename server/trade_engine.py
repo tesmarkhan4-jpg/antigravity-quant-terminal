@@ -70,6 +70,7 @@ class TradeEngine:
         self.initial_balance = initial_balance
         self.balance = initial_balance
         self.risk_per_trade_percent = 1.0  # 1% per slot = $2.00 risk on $200 account
+        self.max_trade_risk_usd = 2.00  # Strictly capped at $2.00 max risk per trade
         self.max_slots = 2  # Exactly 2 concurrent dual bids
         self.auto_trade_enabled = True  # Fully autonomous institutional trading engine
         self.min_ai_confidence = 65  # High-conviction statistical confidence threshold
@@ -77,6 +78,9 @@ class TradeEngine:
         self.circuit_breaker_triggered = False
         self.daily_pnl_usd = 0.0
         self.max_daily_loss_usd = 7.0  # approx 2,000 PKR circuit breaker
+        self.daily_target_pkr = 3000.0  # Exact 3,000 PKR daily target limit
+        self.daily_target_usd = 11.00   # Exact $11.00 USD daily target limit
+        self.daily_target_reached = False  # Auto-stops system once target reached
         
         # Institutional Exchange Connector State (Real Live vs Demo Paper vs Testnet)
         env_mode = os.getenv("TRADING_MODE", "SIMULATED_PAPER").strip().upper()
@@ -92,6 +96,13 @@ class TradeEngine:
         self.positions: List[Dict[str, Any]] = []
         self.trade_history: List[Dict[str, Any]] = []
         self.trade_counter = 1
+
+    def reset_daily_target(self) -> Dict[str, Any]:
+        """Allows resetting daily session ceiling and resuming autonomous trading."""
+        self.daily_target_reached = False
+        self.daily_pnl_usd = 0.0
+        self.auto_trade_enabled = True
+        return {"success": True, "message": "Daily target reset. Auto-trade re-enabled."}
 
     def get_binance_endpoints(self) -> List[str]:
         """Returns the appropriate API clusters depending on testnet vs live."""
@@ -182,15 +193,17 @@ class TradeEngine:
         return self.live_usdt_balance
 
     def get_account_summary(self) -> Dict[str, Any]:
-        """Returns account balance, PnL, PKR target progress, and Dual Slot status."""
-        if self.trading_mode in ["BINANCE_LIVE", "BINANCE_TESTNET"] and self.exchange_connected:
-            self.check_live_binance_balance()
-            
+        """Returns account balance, PnL, PKR target progress, and Dual Slot status instantly from cache."""
         unrealized_pnl = sum(p["unrealized_pnl"] for p in self.positions)
         equity = self.balance + unrealized_pnl
         
         daily_pnl_pkr = (self.daily_pnl_usd + unrealized_pnl) * PKR_RATE
-        target_progress_pct = min(max(round((daily_pnl_pkr / DAILY_PKR_TARGET_MAX) * 100, 1), 0), 100)
+        target_progress_pct = min(max(round((daily_pnl_pkr / self.daily_target_pkr) * 100, 1), 0), 100)
+
+        # Check if daily target was reached (3,000 PKR / $11 USD)
+        if (self.daily_pnl_usd + unrealized_pnl >= self.daily_target_usd or daily_pnl_pkr >= self.daily_target_pkr) and not self.daily_target_reached:
+            self.daily_target_reached = True
+            self.auto_trade_enabled = False
         
         closed_trades = [t for t in self.trade_history if t.get("status") == "CLOSED"]
         winning_trades = [t for t in closed_trades if t.get("realized_pnl", 0) > 0]
@@ -213,8 +226,11 @@ class TradeEngine:
             "unrealized_pnl_pkr": round(unrealized_pnl * PKR_RATE, 0),
             "daily_pnl_usd": round(self.daily_pnl_usd + unrealized_pnl, 2),
             "daily_pnl_pkr": round(daily_pnl_pkr, 0),
-            "daily_target_pkr_min": DAILY_PKR_TARGET_MIN,
-            "daily_target_pkr_max": DAILY_PKR_TARGET_MAX,
+            "daily_target_pkr_min": 1500.0,
+            "daily_target_pkr_max": self.daily_target_pkr,
+            "daily_target_usd_max": self.daily_target_usd,
+            "daily_target_reached": self.daily_target_reached,
+            "max_trade_risk_usd": self.max_trade_risk_usd,
             "target_progress_pct": target_progress_pct,
             "win_rate": win_rate,
             "total_trades": len(closed_trades),
@@ -240,22 +256,44 @@ class TradeEngine:
                       tp1: Optional[float] = None, tp2: Optional[float] = None,
                       tp3: Optional[float] = None) -> Dict[str, Any]:
         """
-        Opens a new trade in one of the 2 dual-bid slots enforcing $2.00 (1%) risk rule.
-        Arms 3-Tier Take-Profit Ladder (TP1 40%, TP2 40%, TP3 Runner 20%).
+        Opens a new trade enforcing:
+        1. Maximum $2.00 USD risk per trade rule strictly.
+        2. Daily profit ceiling lock (stops trading once 3,000 PKR / $11 USD reached).
+        3. Arms 3-Tier Take-Profit Ladder (TP1 40%, TP2 40%, TP3 Runner 20%).
         """
+        # 1. Daily Profit Target Check (3,000 PKR / $11.00 USD)
+        unrealized = sum(p["unrealized_pnl"] for p in self.positions)
+        current_daily_pkr = (self.daily_pnl_usd + unrealized) * PKR_RATE
+        current_daily_usd = self.daily_pnl_usd + unrealized
+        if self.daily_target_reached or current_daily_pkr >= self.daily_target_pkr or current_daily_usd >= self.daily_target_usd:
+            self.daily_target_reached = True
+            self.auto_trade_enabled = False
+            return {
+                "success": False,
+                "message": f"🎯 Daily Profit Target Reached (3,000 PKR / $11.00 USD)! System automatically stopped for today to secure your profits."
+            }
+
+        # 2. Daily Loss Circuit Breaker Check
         if self.circuit_breaker_triggered:
             return {"success": False, "message": "Circuit breaker active. Max daily loss limit hit."}
             
+        # 3. Dual Slot Check (Maximum 2 concurrent trades)
         if len(self.positions) >= self.max_slots:
-            return {"success": False, "message": f"Dual-Bid slots full ({self.max_slots}/{self.max_slots} active). Protecting $200 capital."}
+            return {"success": False, "message": f"Dual-Bid slots full ({self.max_slots}/{self.max_slots} active). Protecting capital."}
 
         # Prevent duplicate positions on the exact same symbol
         for p in self.positions:
             if p["symbol"] == symbol:
                 return {"success": False, "message": f"Position on {symbol} already active in Slot {p.get('slot_num')}."}
 
-        # Exact risk per trade: $2.00 (1% of $200 account)
-        risk_usd = round(self.balance * (self.risk_per_trade_percent / 100.0), 2)
+        # 4. STRICT $2.00 MAXIMUM RISK PER TRADE RULE
+        # Never risk more than $2.00 per trade under any circumstance
+        max_allowed_risk_usd = 2.00
+        configured_risk = round(self.balance * (self.risk_per_trade_percent / 100.0), 2)
+        risk_usd = min(configured_risk, max_allowed_risk_usd)
+        if risk_usd <= 0.20:
+            risk_usd = 2.00  # Default to exactly $2.00 if balance is small
+
         price_diff = abs(current_price - sl)
         if price_diff <= 0:
             price_diff = current_price * 0.01
@@ -264,9 +302,9 @@ class TradeEngine:
         notional_value = round(qty * current_price, 2)
         margin_required = round(notional_value / 5.0, 2)  # 5x leverage
         
-        # Max margin per slot = 25% of balance ($50 max on $200)
-        if margin_required > (self.balance * 0.25):
-            margin_required = round(self.balance * 0.25, 2)
+        # In simulated paper trading, clamp margin to $10 max
+        if self.trading_mode == "SIMULATED_PAPER" and margin_required > 10.0:
+            margin_required = 10.0
             notional_value = margin_required * 5.0
             qty = round(notional_value / current_price, 5)
 
@@ -564,11 +602,18 @@ class TradeEngine:
         self.balance = round(self.balance + net_remaining_leg, 2)
         self.daily_pnl_usd = round(self.daily_pnl_usd + net_remaining_leg, 2)
 
-        # Check Circuit Breaker
+        # Check Circuit Breaker (Max daily loss)
         if self.daily_pnl_usd <= -self.max_daily_loss_usd:
             self.circuit_breaker_triggered = True
             self.auto_trade_enabled = False
             print(f"[CIRCUIT BREAKER] Daily loss reached ${abs(self.daily_pnl_usd):.2f}. Dual-bid halted.")
+
+        # Check Daily Profit Target Ceiling (3,000 PKR / $11 USD)
+        current_daily_pkr = self.daily_pnl_usd * PKR_RATE
+        if self.daily_pnl_usd >= self.daily_target_usd or current_daily_pkr >= self.daily_target_pkr:
+            self.daily_target_reached = True
+            self.auto_trade_enabled = False
+            print(f"🎯 [DAILY GOAL ACHIEVED] Daily profit reached +${self.daily_pnl_usd:.2f} ({current_daily_pkr:,.0f} PKR)! System automatically stopped and locked for today to preserve your earnings.")
 
         trade_record = {
             "id": pos["id"],
@@ -595,6 +640,15 @@ class TradeEngine:
         learning_engine.update_trade_outcome(pos["id"], exit_price, total_pnl, realized_pnl_pkr, outcome)
 
         return trade_record
+
+    def close_all_positions(self) -> List[Dict[str, Any]]:
+        """Safely and immediately closes all open slot positions."""
+        closed_list = []
+        for pos in list(self.positions):
+            closed = self.manual_close_position(pos["id"])
+            if closed:
+                closed_list.append(closed)
+        return closed_list
 
     def reset_circuit_breaker(self):
         self.circuit_breaker_triggered = False

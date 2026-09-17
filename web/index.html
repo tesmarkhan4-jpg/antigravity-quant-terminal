@@ -27,6 +27,18 @@
     </div>
   </div>
 
+  <!-- Daily Profit Target Reached Lock Banner -->
+  <div id="dailyTargetBanner" class="target-reached-banner hidden" style="background: linear-gradient(90deg, rgba(16, 185, 129, 0.95), rgba(5, 150, 105, 0.95)); color: #fff; padding: 12px 24px; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 600; box-shadow: 0 4px 20px rgba(16, 185, 129, 0.3); border-bottom: 1px solid rgba(255, 255, 255, 0.2);">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span style="font-size: 20px;">🎯</span>
+      <div>
+        <strong>DAILY PROFIT TARGET ACHIEVED (+3,000 PKR / $11.00 USD)!</strong>
+        <span style="font-weight: 400; opacity: 0.95; margin-left: 8px;">Execution automatically stopped for today to secure your profits.</span>
+      </div>
+    </div>
+    <button id="resumeTargetBtn" style="background: #ffffff; color: #047857; font-weight: 700; border: none; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: all 0.2s;">Resume / Next Session</button>
+  </div>
+
   <!-- Global Top Institutional Header (Executive Single-Row Alignment) -->
   <header class="app-header">
     <div class="header-left">
@@ -167,7 +179,7 @@
         <div class="kpi-header">
           <div class="kpi-title-group">
             <span class="kpi-icon">🎯</span>
-            <span class="kpi-title">DAILY TARGET (1,500 - 3,000 PKR)</span>
+            <span class="kpi-title">DAILY PROFIT TARGET (3,000 PKR / $11 USD)</span>
           </div>
           <span class="target-pct-badge mono" id="targetProgressPct">0%</span>
         </div>
@@ -176,7 +188,7 @@
         </div>
         <div class="kpi-footer">
           <span>Today: <strong class="mono" id="dailyPnlPkr">+0 PKR</strong> (<span class="mono" id="dailyPnlUsd">$0.00</span>)</span>
-          <span class="goal-tag">Target: 3,000 PKR</span>
+          <span class="goal-tag" id="dailyGoalCeilingTag">Target: 3,000 PKR ($11)</span>
         </div>
       </div>
 
