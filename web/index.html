@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Antigravity Quant AI | Institutional High-Predictability Trading Terminal</title>
+  
+  <!-- Modern Institutional Typography: Outfit, Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  
+  <!-- TradingView Lightweight Charts -->
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  
+  <link rel="stylesheet" href="styles.css?v=4.6">
+</head>
+<body class="theme-quant-dark">
+  <!-- Circuit Breaker Emergency Banner -->
+  <div id="circuitAlertBanner" class="circuit-banner hidden">
+    <div class="circuit-banner-content">
+      <span class="circuit-icon">⚠️</span>
+      <div class="circuit-text">
+        <strong>CIRCUIT BREAKER TRIGGERED:</strong> Daily loss limit reached ($7.00 / ~2,000 PKR). Autonomous Dual-Bid execution has been halted to protect capital.
+      </div>
+      <button id="resetCircuitBtn" class="circuit-reset-btn">Reset Circuit Breaker</button>
+    </div>
+  </div>
+
+  <!-- Global Top Institutional Header (Executive Single-Row Alignment) -->
+  <header class="app-header">
+    <div class="header-left">
+      <!-- Brand Identity -->
+      <div class="brand-logo">
+        <div class="logo-hexagon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"></polygon>
+            <line x1="12" y1="22" x2="12" y2="15.5"></line>
+            <polyline points="22 8.5 12 15.5 2 8.5"></polyline>
+          </svg>
+        </div>
+        <div class="brand-meta">
+          <div class="brand-title-row">
+            <span class="brand-title">ANTIGRAVITY QUANT AI</span>
+            <span class="badge-tag version-tag">v3.0 PRO</span>
+          </div>
+          <span class="brand-subtitle">INSTITUTIONAL DUAL-BID TERMINAL</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center: Live Price Hero Ticker -->
+    <div class="header-center">
+      <div class="live-ticker-card">
+        <div class="ticker-ident">
+          <span class="ticker-symbol" id="tickerSymbol">BTC/USDT</span>
+          <span class="live-pulse-dot"></span>
+        </div>
+        <span class="ticker-price mono" id="tickerPrice">$0.00</span>
+        <span class="ticker-badge" id="tickerChange">+0.00%</span>
+      </div>
+    </div>
+
+    <!-- Right: Controls, Wallet & Action Buttons -->
+    <div class="header-right">
+      <!-- Real vs Demo Execution Switcher -->
+      <div class="real-demo-toggle-group" id="realDemoToggleGroup" title="Toggle Real Live Binance vs Demo Paper Simulation">
+        <span class="toggle-group-label">ACCOUNT</span>
+        <div class="mode-segmented-switch" id="modeSegmentedSwitch">
+          <button type="button" id="btnSelectDemo" class="mode-segment active" data-mode="SIMULATED_PAPER" title="Switch to Demo Paper Simulation (Zero Risk)">
+            <span class="mode-dot demo-dot"></span>
+            <span>DEMO</span>
+          </button>
+          <button type="button" id="btnSelectReal" class="mode-segment" data-mode="BINANCE_LIVE" title="Switch to Real Live Binance Account">
+            <span class="mode-dot real-dot"></span>
+            <span>REAL</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Live Wallet Balance Chip -->
+      <div class="wallet-balance-chip" id="walletBalanceChip" title="Click to view full Binance Spot wallet holdings">
+        <span class="wallet-icon">💼</span>
+        <span class="wallet-label">SPOT:</span>
+        <span class="wallet-val mono" id="headerWalletUsdt">$0.00 USDT</span>
+      </div>
+
+      <!-- Dual-Bid Autonomous Toggle -->
+      <div class="auto-trade-toggle-wrap" title="Autonomous Dual-Bid High-Probability Auto-Trading">
+        <span class="toggle-label">Auto-Pilot:</span>
+        <label class="switch">
+          <input type="checkbox" id="autoTradeToggle" checked>
+          <span class="slider round"></span>
+        </label>
+        <span class="auto-badge active" id="autoBadgeText">ON</span>
+      </div>
+
+      <!-- Sound Toggle -->
+      <button id="soundToggleBtn" class="icon-btn" title="Toggle Sound Chimes">
+        <svg id="soundIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+        </svg>
+      </button>
+
+      <!-- Settings Trigger -->
+      <button id="openSettingsBtn" class="icon-btn highlight" title="Settings & Binance API Bridge">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+
+      <!-- Emergency Panic Kill Switch -->
+      <button id="btnEmergencyCloseAll" class="panic-kill-btn" title="Emergency: Instantly close all open dual-slot positions">
+        <span>⚡ CLOSE ALL</span>
+      </button>
+
+      <!-- Hidden compatibility anchors for JS state binding -->
+      <div id="modePill" class="mode-pill paper" style="display:none;"><span id="modePillText">DEMO</span></div>
+      <div id="engineStatusText" style="display:none;">AI Quant Live</div>
+    </div>
+  </header>
+
+  <!-- 12-Pair Quick Market Scanner Bar -->
+  <nav class="quick-pair-bar" id="quickPairBar">
+    <div class="quick-pair-chip active" data-sym="BTCUSDT"><span class="chip-sym">BTC</span> <span class="chip-price mono">$0.00</span></div>
+    <div class="quick-pair-chip" data-sym="ETHUSDT"><span class="chip-sym">ETH</span> <span class="chip-price mono">$0.00</span></div>
+    <div class="quick-pair-chip" data-sym="SOLUSDT"><span class="chip-sym">SOL</span> <span class="chip-price mono">$0.00</span></div>
+    <div class="quick-pair-chip" data-sym="BNBUSDT"><span class="chip-sym">BNB</span> <span class="chip-price mono">$0.00</span></div>
+    <div class="quick-pair-chip" data-sym="XRPUSDT"><span class="chip-sym">XRP</span> <span class="chip-price mono">$0.00</span></div>
+    <div class="quick-pair-chip" data-sym="ADAUSDT"><span class="chip-sym">ADA</span> <span class="chip-price mono">$0.00</span></div>
+    <div class="quick-pair-chip" data-sym="DOGEUSDT"><span class="chip-sym">DOGE</span> <span class="chip-price mono">$0.00</span></div>
+    <div class="quick-pair-chip" data-sym="AVAXUSDT"><span class="chip-sym">AVAX</span> <span class="chip-price mono">$0.00</span></div>
+    <div class="quick-pair-chip" data-sym="LINKUSDT"><span class="chip-sym">LINK</span> <span class="chip-price mono">$0.00</span></div>
+    <div class="quick-pair-chip" data-sym="NEARUSDT"><span class="chip-sym">NEAR</span> <span class="chip-price mono">$0.00</span></div>
+    <div class="quick-pair-chip" data-sym="SUIUSDT"><span class="chip-sym">SUI</span> <span class="chip-price mono">$0.00</span></div>
+    <div class="quick-pair-chip" data-sym="MATICUSDT"><span class="chip-sym">MATIC</span> <span class="chip-price mono">$0.00</span></div>
+  </nav>
+
+  <!-- Main Institutional Workstation -->
+  <main class="main-layout">
+    
+    <!-- Top KPI Performance & Capital Grid -->
+    <section class="kpi-grid">
+      <!-- KPI 1: Capital & Active Mode -->
+      <div class="kpi-card glass-panel" id="kpiCapitalCard">
+        <div class="kpi-header">
+          <div class="kpi-title-group">
+            <span class="kpi-icon">💰</span>
+            <span class="kpi-title">TRADING CAPITAL</span>
+          </div>
+          <span class="badge-tag mode-indicator-badge" id="kpiModeBadge">DEMO SANDBOX</span>
+        </div>
+        <div class="kpi-value-row">
+          <span class="kpi-main-val mono" id="balanceUsd">$200.00</span>
+          <span class="kpi-sub-val mono" id="balancePkr">56,000 PKR</span>
+        </div>
+        <div class="kpi-footer">
+          <span>Max Risk: <strong>$2.00 / slot (1%)</strong></span>
+          <span class="text-muted mono" id="pkrRateLabel">1 USD = 280 PKR</span>
+        </div>
+      </div>
+
+      <!-- KPI 2: Daily Target Progress -->
+      <div class="kpi-card glass-panel featured">
+        <div class="kpi-header">
+          <div class="kpi-title-group">
+            <span class="kpi-icon">🎯</span>
+            <span class="kpi-title">DAILY TARGET (1,500 - 3,000 PKR)</span>
+          </div>
+          <span class="target-pct-badge mono" id="targetProgressPct">0%</span>
+        </div>
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill" id="progressBarFill" style="width: 0%;"></div>
+        </div>
+        <div class="kpi-footer">
+          <span>Today: <strong class="mono" id="dailyPnlPkr">+0 PKR</strong> (<span class="mono" id="dailyPnlUsd">$0.00</span>)</span>
+          <span class="goal-tag">Target: 3,000 PKR</span>
+        </div>
+      </div>
+
+      <!-- KPI 3: Accuracy & Statistical Win Probability -->
+      <div class="kpi-card glass-panel">
+        <div class="kpi-header">
+          <div class="kpi-title-group">
+            <span class="kpi-icon">📊</span>
+            <span class="kpi-title">STATISTICAL WIN PROBABILITY</span>
+          </div>
+          <span class="badge-tag success" id="aiEvolutionBadge">High Predictability</span>
+        </div>
+        <div class="kpi-value-row">
+          <span class="kpi-main-val mono text-success" id="predictedWinProbVal">82.5%</span>
+          <span class="kpi-sub-val" id="closedTradesCount">A+ Quant Model</span>
+        </div>
+        <div class="kpi-footer">
+          <span>Macro Sentiment: <strong id="macroSentimentTag" class="text-success">Greed (63/100)</strong></span>
+        </div>
+      </div>
+
+      <!-- KPI 4: Live Dual-Slot Open PnL -->
+      <div class="kpi-card glass-panel">
+        <div class="kpi-header">
+          <div class="kpi-title-group">
+            <span class="kpi-icon">⚡</span>
+            <span class="kpi-title">DUAL-SLOT LIVE PnL</span>
+          </div>
+          <span class="badge-tag" id="openPositionsBadge">0/2 Slots</span>
+        </div>
+        <div class="kpi-value-row">
+          <span class="kpi-main-val mono" id="openPnlUsd">$0.00</span>
+          <span class="kpi-sub-val mono" id="openPnlPkr">0 PKR</span>
+        </div>
+        <div class="kpi-footer">
+          <span class="mono" id="equityUsd">Equity: $200.00</span>
+          <span class="text-muted mono" id="equityPkr">56,000 PKR</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3-Column Balanced Quant Workstation Grid (No Empty Space) -->
+    <div class="quant-workstation-grid">
+      
+      <!-- =================================================================== -->
+      <!-- LEFT COLUMN: Market Radar, Order Flow, Whale Depth & 12-Rule Audit  -->
+      <!-- =================================================================== -->
+      <div class="workstation-col left-col">
+        
+        <!-- 12-Pair Opportunity Radar Card (Fixed Column Widths, No Cut-Offs) -->
+        <div class="card glass-panel radar-card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <span class="card-icon">📡</span>
+              <h2 class="card-title">12-Pair Market Radar</h2>
+            </div>
+            <span class="live-tag">● SCANNER</span>
+          </div>
+
+          <div class="radar-scroll-wrap">
+            <table class="styled-table radar-table">
+              <thead>
+                <tr>
+                  <th style="width: 24px; padding-left: 2px;">#</th>
+                  <th style="width: 46px;">Pair</th>
+                  <th style="text-align: right; width: 66px;">Price</th>
+                  <th style="text-align: right; width: 50px;">24h %</th>
+                  <th style="text-align: right; width: 104px; padding-right: 6px;">Opportunity</th>
+                </tr>
+              </thead>
+              <tbody id="radarTableBody">
+                <tr class="empty-row">
+                  <td colspan="5">Scanning 12 liquid markets concurrently...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Cumulative Volume Delta (CVD) & Order Flow Card -->
+        <div class="card glass-panel orderflow-card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <span class="card-icon">🌊</span>
+              <h2 class="card-title">Order Flow & CVD</h2>
+            </div>
+            <span class="badge-tag" id="cvdPill">Balanced Flow</span>
+          </div>
+
+          <div class="orderflow-body">
+            <div class="regime-banner" id="regimeBadge">
+              <span class="regime-dot"></span> REGIME: EVALUATING MARKET...
+            </div>
+
+            <!-- MTF 4-Timeframe Matrix -->
+            <div class="mtf-matrix-box">
+              <div class="mtf-header-row">
+                <span class="section-label">Multi-Timeframe Confluence (MTF):</span>
+                <span class="mtf-score-tag" id="mtfScoreBadge">+0.0 MTF</span>
+              </div>
+              <div class="mtf-indicators-grid" id="mtfBar">
+                <div class="mtf-tf-cell" id="mtf4h"><span class="tf-name">4H (Macro)</span><span class="tf-status">NEUTRAL</span></div>
+                <div class="mtf-tf-cell" id="mtf1h"><span class="tf-name">1H (Trend)</span><span class="tf-status">NEUTRAL</span></div>
+                <div class="mtf-tf-cell" id="mtf15m"><span class="tf-name">15M (Primary)</span><span class="tf-status">NEUTRAL</span></div>
+                <div class="mtf-tf-cell" id="mtf5m"><span class="tf-name">5M (Trigger)</span><span class="tf-status">NEUTRAL</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Order Book Whale Liquidity Radar Card (Dedicated Labels Row, No Clipping) -->
+        <div class="card glass-panel orderbook-card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <span class="card-icon">🐋</span>
+              <h2 class="card-title">Order Book Whale Walls</h2>
+            </div>
+            <span class="badge-tag" id="obRatioBadge">1.0x Ratio</span>
+          </div>
+
+          <div class="orderbook-body">
+            <!-- Dedicated Depth Percentage Stats Row (Never Clips or Wraps) -->
+            <div class="depth-stats-row">
+              <span class="depth-stat-bid" id="depthBidLabel">Bids: 50.0%</span>
+              <span class="depth-stat-ask" id="depthAskLabel">Asks: 50.0%</span>
+            </div>
+            <div class="depth-bar-container">
+              <div class="depth-bar-bid" id="depthBidBar" style="width: 50%;"></div>
+              <div class="depth-bar-ask" id="depthAskBar" style="width: 50%;"></div>
+            </div>
+
+            <div class="whale-walls-row">
+              <div class="whale-wall-box support">
+                <span class="whale-label">WHALE BUY SUPPORT</span>
+                <strong class="whale-price text-success mono" id="whaleSupportPrice">$0.00</strong>
+                <span class="whale-qty mono" id="whaleSupportQty">0 units</span>
+              </div>
+              <div class="whale-wall-box resistance">
+                <span class="whale-label">WHALE SELL RESISTANCE</span>
+                <strong class="whale-price text-danger mono" id="whaleResistancePrice">$0.00</strong>
+                <span class="whale-qty mono" id="whaleResistanceQty">0 units</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 12-Point Institutional Audit Checklist Card (Balances Left Column Height) -->
+        <div class="card glass-panel checklist-card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <span class="card-icon">📋</span>
+              <h2 class="card-title">12-Point Audit Matrix</h2>
+            </div>
+            <span class="score-badge mono" id="quantNetScore">+0.0</span>
+          </div>
+
+          <div class="checklist-grid" id="checklistContainer">
+            <div class="loading-state">Auditing 12 institutional confluence indicators...</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- =================================================================== -->
+      <!-- CENTER COLUMN: Interactive Chart, Dual Slots, Manual & SQLite AI    -->
+      <!-- =================================================================== -->
+      <div class="workstation-col center-col">
+        
+        <!-- Interactive Candlestick Graph Card with Integrated Toolbar -->
+        <div class="card glass-panel chart-card">
+          <div class="card-header chart-header-row">
+            <div class="chart-header-left">
+              <div class="card-title-group">
+                <span class="card-icon">📈</span>
+                <h2 class="card-title" id="activeChartTitle">Candlestick Chart</h2>
+              </div>
+              
+              <!-- Integrated Quick Symbol Selector -->
+              <div class="symbol-selector-group">
+                <div class="select-wrapper">
+                  <select id="symbolSelect" class="styled-select">
+                    <option value="BTCUSDT" selected>BTC / USDT (Bitcoin)</option>
+                    <option value="ETHUSDT">ETH / USDT (Ethereum)</option>
+                    <option value="SOLUSDT">SOL / USDT (Solana)</option>
+                    <option value="BNBUSDT">BNB / USDT (Binance Coin)</option>
+                    <option value="XRPUSDT">XRP / USDT (Ripple)</option>
+                    <option value="ADAUSDT">ADA / USDT (Cardano)</option>
+                    <option value="DOGEUSDT">DOGE / USDT (Dogecoin)</option>
+                    <option value="AVAXUSDT">AVAX / USDT (Avalanche)</option>
+                    <option value="LINKUSDT">LINK / USDT (Chainlink)</option>
+                    <option value="NEARUSDT">NEAR / USDT (NEAR Protocol)</option>
+                    <option value="SUIUSDT">SUI / USDT (Sui)</option>
+                    <option value="MATICUSDT">MATIC / USDT (Polygon)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Timeframes & Indicators -->
+            <div class="chart-header-right">
+              <div class="timeframe-buttons">
+                <button class="tf-btn" data-tf="1m">1m</button>
+                <button class="tf-btn" data-tf="5m">5m</button>
+                <button class="tf-btn active" data-tf="15m">15m</button>
+                <button class="tf-btn" data-tf="1h">1h</button>
+              </div>
+
+              <div class="chart-toggles">
+                <label class="chart-checkbox">
+                  <input type="checkbox" id="toggleEma50" checked>
+                  <span class="legend-color ema-50"></span> 50 EMA
+                </label>
+                <label class="chart-checkbox">
+                  <input type="checkbox" id="toggleEma200" checked>
+                  <span class="legend-color ema-200"></span> 200 EMA
+                </label>
+                <button id="resetZoomBtn" class="small-action-btn">Reset</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="chart-container" id="tradingviewChart">
+            <!-- Lightweight Charts Injected Here -->
+          </div>
+        </div>
+
+        <!-- Dual-Slot Active Position Monitors (Slot 1 & Slot 2) -->
+        <div class="card glass-panel dual-slots-card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <span class="card-icon">🎯</span>
+              <h2 class="card-title">Dual-Bid Autonomous Execution Slots</h2>
+              <span class="subtitle-badge">Max 2 Concurrent Slots ($2.00 Risk / Trade)</span>
+            </div>
+            <span class="slots-indicator-pill" id="slotsIndicatorPill">2 Slots Available</span>
+          </div>
+
+          <div class="slots-container">
+            <!-- Slot 1 -->
+            <div class="slot-box" id="slot1Box">
+              <div class="slot-header">
+                <span class="slot-badge">SLOT 1</span>
+                <span class="slot-status-tag vacant" id="slot1Status">VACANT</span>
+              </div>
+              <div class="slot-body" id="slot1Body">
+                <div class="empty-slot-wrap">
+                  <span class="empty-slot-icon">🔍</span>
+                  <div class="empty-slot-text">Scanning 12 pairs for #1 Highest-Conviction A+ Setup...</div>
+                  <div class="empty-slot-sub">Auto 1:2 R:R Guard & 3-Tier Take-Profit Ladder Armed</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Slot 2 -->
+            <div class="slot-box" id="slot2Box">
+              <div class="slot-header">
+                <span class="slot-badge">SLOT 2</span>
+                <span class="slot-status-tag vacant" id="slot2Status">VACANT</span>
+              </div>
+              <div class="slot-body" id="slot2Body">
+                <div class="empty-slot-wrap">
+                  <span class="empty-slot-icon">🔍</span>
+                  <div class="empty-slot-text">Scanning 12 pairs for #2 Highest-Conviction A+ Setup...</div>
+                  <div class="empty-slot-sub">Trailing Breakeven Shield & Runner Mode Ready</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Manual Quick Execution Deck -->
+        <div class="card glass-panel manual-actions-card">
+          <div class="manual-actions-header">
+            <span class="section-label">Manual Quantitative Override & Position Sizing:</span>
+            <div class="risk-slider-wrap">
+              <span class="slider-label">Risk Per Trade:</span>
+              <input type="range" id="riskSlider" min="0.5" max="3.0" step="0.5" value="1.0" class="styled-slider">
+              <span id="riskPctLabel" class="slider-val mono">1.0% ($2.00 / slot)</span>
+            </div>
+          </div>
+
+          <div class="manual-btn-row">
+            <button id="btnManualLong" class="btn-trade buy">
+              <div class="btn-trade-content">
+                <span class="btn-trade-title">BUY / LONG</span>
+                <span class="btn-trade-sub">Auto 1:2 R:R Guard</span>
+              </div>
+            </button>
+            <button id="btnManualShort" class="btn-trade sell">
+              <div class="btn-trade-content">
+                <span class="btn-trade-title">SELL / SHORT</span>
+                <span class="btn-trade-sub">Auto 1:2 R:R Guard</span>
+              </div>
+            </button>
+            <button id="btnCloseAll" class="btn-trade close-all">
+              <div class="btn-trade-content">
+                <span class="btn-trade-title">CLOSE ALL</span>
+                <span class="btn-trade-sub">Bank Realized PnL</span>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Self-Learning AI SQLite Engine (Moved to Center Column: Perfectly fills former black space) -->
+        <div class="card glass-panel learning-card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <span class="card-icon">🧬</span>
+              <h2 class="card-title">Adaptive SQLite Quantitative Engine</h2>
+            </div>
+            <span class="badge-tag success">Auto-Learning Active</span>
+          </div>
+
+          <div class="learning-content-grid">
+            <div class="learned-patterns-col">
+              <span class="widget-subtitle">Top Empirical Winning Patterns</span>
+              <div class="patterns-list" id="learnedPatternsList">
+                <div class="loading-state">Loading learned pattern weights...</div>
+              </div>
+            </div>
+
+            <div class="recent-audits-col">
+              <span class="widget-subtitle">Recent Trade Execution Audits</span>
+              <div class="audits-list" id="recentAuditsList">
+                <div class="loading-state">Loading post-trade audits...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- =================================================================== -->
+      <!-- RIGHT COLUMN: AI Senior Trader Brain & 5-Rule Safety Gatekeeper     -->
+      <!-- =================================================================== -->
+      <div class="workstation-col right-col">
+        
+        <!-- AI Senior Trader Brain Card -->
+        <div class="card glass-panel ai-brain-card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <span class="card-icon">🧠</span>
+              <h2 class="card-title">AI Senior Trader Brain</h2>
+            </div>
+            <span class="ai-engine-tag" id="aiEngineTag">Quant AI</span>
+          </div>
+
+          <div class="ai-verdict-banner" id="aiVerdictBanner">
+            <div class="ai-verdict-top">
+              <span class="ai-action-title" id="aiActionTitle">ANALYZING...</span>
+              <span class="ai-confidence mono" id="confidenceNum">50%</span>
+            </div>
+            <p class="ai-reason" id="aiReasonText">Evaluating order book depth, whale liquidity walls, and the 5 Pre-Trade Safety Rules with ensemble reasoning.</p>
+            
+            <div class="ai-targets-row">
+              <div class="ai-target-item">
+                <span class="target-label">Entry Price:</span>
+                <strong class="mono" id="aiEntryPrice">$0.00</strong>
+              </div>
+              <div class="ai-target-item">
+                <span class="target-label">Target (TP):</span>
+                <strong class="mono text-success" id="aiTpPrice">$0.00</strong>
+              </div>
+              <div class="ai-target-item">
+                <span class="target-label">Stop Loss (SL):</span>
+                <strong class="mono text-danger" id="aiSlPrice">$0.00</strong>
+              </div>
+              <div class="ai-target-item">
+                <span class="target-label">Risk / Reward:</span>
+                <strong class="mono" id="aiRrRatio">1:2.0</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5-Point Pre-Trade Safety Gatekeeper Card -->
+        <div class="card glass-panel gatekeeper-card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <span class="card-icon">🛡️</span>
+              <h2 class="card-title">5-Rule Gatekeeper</h2>
+            </div>
+            <span class="gatekeeper-status-badge" id="gatekeeperOverallBadge">Auditing...</span>
+          </div>
+          <div class="gatekeeper-rules-grid" id="gatekeeperRulesContainer">
+            <div class="loading-state">Evaluating mandatory safety gates...</div>
+          </div>
+        </div>
+
+        <!-- Institutional Capital Guard & Risk Rules Card (Balances Right Column) -->
+        <div class="card glass-panel risk-guard-card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <span class="card-icon">🔒</span>
+              <h2 class="card-title">Capital & Risk Guard</h2>
+            </div>
+            <span class="badge-tag success">Active Guard</span>
+          </div>
+
+          <div class="risk-guard-body">
+            <div class="risk-rule-row">
+              <span class="risk-rule-label">Max Risk Per Slot:</span>
+              <strong class="mono text-white">$2.00 (1.0% Capital)</strong>
+            </div>
+            <div class="risk-rule-row">
+              <span class="risk-rule-label">Daily Circuit Breaker:</span>
+              <strong class="mono text-danger">$7.00 (~2,000 PKR Max Loss)</strong>
+            </div>
+            <div class="risk-rule-row">
+              <span class="risk-rule-label">Target Risk-to-Reward:</span>
+              <strong class="mono text-success">1:2.0 Minimum</strong>
+            </div>
+            <div class="risk-rule-row">
+              <span class="risk-rule-label">Breakeven Lock Shield:</span>
+              <strong class="mono text-primary">Auto-Locks at +1.0R</strong>
+            </div>
+            <div class="risk-rule-row">
+              <span class="risk-rule-label">Execution Latency:</span>
+              <strong class="mono text-success">● High-Speed (&lt; 40ms)</strong>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- BOTTOM SECTION: Active Positions & Trade Execution Log              -->
+    <!-- =================================================================== -->
+    <section class="bottom-tables-grid">
+      
+      <!-- Active Positions Detailed Table -->
+      <div class="card glass-panel table-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <span class="card-icon">💼</span>
+            <h2 class="card-title">Active Dual-Slot Positions</h2>
+          </div>
+          <span class="badge-tag" id="activePositionsCount">0 Active</span>
+        </div>
+
+        <div class="table-container">
+          <table class="styled-table">
+            <thead>
+              <tr>
+                <th>Slot</th>
+                <th>ID</th>
+                <th>Type</th>
+                <th>Symbol</th>
+                <th>Entry Price</th>
+                <th>Live Price</th>
+                <th>TP Level</th>
+                <th>SL Guard</th>
+                <th>PnL (USD)</th>
+                <th>PnL (PKR)</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="positionsTableBody">
+              <tr class="empty-row">
+                <td colspan="11">No active positions. Dual-bid auto execution will appear here.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Closed Execution Log & History Table -->
+      <div class="card glass-panel table-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <span class="card-icon">📜</span>
+            <h2 class="card-title">Execution Log & Realized History</h2>
+          </div>
+          <span class="badge-tag">Recent Closed Trades</span>
+        </div>
+
+        <div class="table-container">
+          <table class="styled-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>ID</th>
+                <th>Type</th>
+                <th>Exit Price</th>
+                <th>Outcome</th>
+                <th>Realized USD</th>
+                <th>Realized PKR</th>
+              </tr>
+            </thead>
+            <tbody id="historyTableBody">
+              <tr class="empty-row">
+                <td colspan="7">Trade execution history will be recorded here.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- ===================================================================== -->
+  <!-- SETTINGS & BINANCE API BRIDGE MODAL                                   -->
+  <!-- ===================================================================== -->
+  <div id="settingsModal" class="modal-backdrop hidden">
+    <div class="modal-card glass-modal">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <span class="modal-icon">⚙️</span>
+          <h3 class="modal-title">System Settings & Binance Bridge Configuration</h3>
+        </div>
+        <button id="closeModalBtn" class="close-modal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="modal-section">
+          <div class="section-title-row">
+            <h4 class="modal-section-title">Binance Spot API Bridge</h4>
+            <span class="badge-tag" id="modalExchangeBadge">SIMULATED PAPER</span>
+          </div>
+          <p class="modal-desc">
+            Connect your official Binance Spot account for live algorithmic dual-slot execution. API keys require <strong>Read</strong> and <strong>Enable Spot & Margin Trading</strong> permissions.
+          </p>
+
+          <div class="form-group">
+            <label for="apiKeyInput">Binance API Key:</label>
+            <input type="password" id="apiKeyInput" class="styled-input" placeholder="Paste your Binance API Key">
+          </div>
+
+          <div class="form-group">
+            <label for="apiSecretInput">Binance Secret Key:</label>
+            <input type="password" id="apiSecretInput" class="styled-input" placeholder="Paste your Binance API Secret">
+          </div>
+
+          <div class="form-group">
+            <label for="tradingModeSelect">Execution Engine Mode:</label>
+            <select id="tradingModeSelect" class="styled-select-modal">
+              <option value="SIMULATED_PAPER">Demo Paper Trading (Virtual $200 Capital - Zero Risk)</option>
+              <option value="BINANCE_LIVE">Real Live Binance Account (Executes Real Spot Orders)</option>
+              <option value="BINANCE_TESTNET">Binance Official Spot Testnet (Sandbox Environment)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="modal-section">
+          <h4 class="modal-section-title">Capital & Risk Management Rules</h4>
+          <div class="grid-2col">
+            <div class="form-group">
+              <label for="pkrRateInput">PKR Currency Conversion (USD to PKR):</label>
+              <input type="number" id="pkrRateInput" class="styled-input" value="280">
+            </div>
+            <div class="form-group">
+              <label for="dailyTargetPkrInput">Daily Target Ceiling (PKR):</label>
+              <input type="number" id="dailyTargetPkrInput" class="styled-input" value="3000">
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="maxRiskPctInput">Maximum Risk Per Trade (%):</label>
+            <input type="number" id="maxRiskPctInput" class="styled-input" step="0.1" value="1.0">
+          </div>
+        </div>
+
+        <div class="modal-section">
+          <div class="section-title-row">
+            <h4 class="modal-section-title">Binance Spot Wallet Holdings</h4>
+            <span class="wallet-total-tag" id="modalWalletTotal">Free USDT: $0.00</span>
+          </div>
+          <div class="modal-wallet-table-wrap">
+            <table class="styled-table modal-wallet-table">
+              <thead>
+                <tr>
+                  <th>Asset</th>
+                  <th>Free</th>
+                  <th>Locked</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody id="walletAssetsTableBody">
+                <tr>
+                  <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 14px;">
+                    0 assets found with non-zero balances. Deposit USDT on Binance Spot to execute live trades.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="modal-footer">
+        <button id="cancelSettingsBtn" class="cancel-modal-btn" style="display:none;">Cancel</button>
+        <button id="saveSettingsBtn" class="primary-btn">Save & Apply Configuration</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=4.6"></script>
+</body>
+</html>
