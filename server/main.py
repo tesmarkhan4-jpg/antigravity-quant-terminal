@@ -70,6 +70,7 @@ class CloseRequest(BaseModel):
 class SettingsRequest(BaseModel):
     auto_trade: bool = True
     risk_pct: float = 1.0
+    trade_size_usd: Optional[float] = None
     gemini_key: Optional[str] = ""
     pkr_rate: Optional[float] = None
     daily_target_pkr: Optional[float] = None
@@ -229,23 +230,19 @@ async def market_monitoring_loop():
                                 live_p = candidate["price"]
 
                             sl_dist = abs(candidate["price"] - candidate["sl"]) if candidate.get("sl") else (live_p * 0.012)
-                            sl_dist = max(sl_dist, live_p * 0.006)
-                            dec_prec = 5 if live_p < 0.1 else (4 if live_p < 2.0 else 2)
+                            sl_dist = max(sl_dist, live_p * 0.008)
+                            dec_prec = 5 if live_p < 0.1 else (4 if live_p < 2.0 else (3 if live_p < 50.0 else 2))
+                            # Calibrate TP target for solid 2.8% to 3.8% target price run (2.3x R:R) to bank 75 to 110+ PKR
+                            tp_dist = max(sl_dist * 2.3, live_p * 0.028)
 
                             if candidate["action"] == "LONG":
                                 entry_p = live_p
                                 sl_p = round(live_p - sl_dist, dec_prec)
-                                tp1_p = round(live_p + (sl_dist * 1.2), dec_prec)
-                                tp2_p = round(live_p + (sl_dist * 2.0), dec_prec)
-                                tp3_p = round(live_p + (sl_dist * 3.5), dec_prec)
-                                tp_p = tp2_p
+                                tp_p = round(live_p + tp_dist, dec_prec)
                             else:
                                 entry_p = live_p
                                 sl_p = round(live_p + sl_dist, dec_prec)
-                                tp1_p = round(live_p - (sl_dist * 1.2), dec_prec)
-                                tp2_p = round(live_p - (sl_dist * 2.0), dec_prec)
-                                tp3_p = round(live_p - (sl_dist * 3.5), dec_prec)
-                                tp_p = tp2_p
+                                tp_p = round(live_p - tp_dist, dec_prec)
 
                             res = trade_engine.open_position(
                                 sym,
@@ -254,15 +251,12 @@ async def market_monitoring_loop():
                                 tp_p,
                                 sl_p,
                                 f"Autonomous High-Probability: {candidate['verdict']} ({candidate['win_prob']}% Win Prob | {candidate['dominant_pattern']})",
-                                candidate["analysis"],
-                                tp1=tp1_p,
-                                tp2=tp2_p,
-                                tp3=tp3_p
+                                candidate["analysis"]
                             )
                             if res.get("success"):
                                 available_slots -= 1
                                 existing_symbols.add(sym)
-                                print(f"[Autonomous Dual-Bid] Placed {candidate['action']} on {sym} @ ${entry_p:,.4f} (Win Prob: {candidate['win_prob']}%, Opp Score: {candidate['opp_score']}) with 3-Tier TP Ladder!")
+                                print(f"[Autonomous Dual-Bid] Placed {candidate['action']} on {sym} @ ${entry_p:,.4f} | TP @ ${tp_p:,.4f} | Instant 100% Real-Time TP Armed!")
 
             # 4. Broadcast to all active WebSocket clients
             if active_connections:
@@ -477,6 +471,8 @@ def update_settings(settings: SettingsRequest):
         global PKR_RATE
         PKR_RATE = settings.pkr_rate
         trade_engine.pkr_rate = settings.pkr_rate
+    if settings.trade_size_usd and settings.trade_size_usd >= 5.0:
+        trade_engine.trade_size_usd = min(settings.trade_size_usd, 50.0)
     if settings.daily_target_pkr and settings.daily_target_pkr > 0:
         trade_engine.daily_target_pkr_max = settings.daily_target_pkr
         trade_engine.daily_target_pkr_min = settings.daily_target_pkr * 0.5

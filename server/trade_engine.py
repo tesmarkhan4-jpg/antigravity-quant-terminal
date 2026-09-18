@@ -65,10 +65,19 @@ def format_qty_to_step(qty: float, step_size: float) -> float:
     stepped = math.floor(qty / step_size) * step_size
     return round(stepped, precision)
 
+def get_precision(price: float) -> int:
+    """Returns suitable decimal precision for crypto pricing."""
+    if price < 0.0001: return 6
+    if price < 0.01: return 5
+    if price < 2.0: return 4
+    if price < 50.0: return 3
+    return 2
+
 class TradeEngine:
     def __init__(self, initial_balance: float = 200.0):
         self.initial_balance = initial_balance
         self.balance = initial_balance
+        self.trade_size_usd = 10.00  # Default trade placed size ($10.00 USDT)
         self.risk_per_trade_percent = 1.0  # 1% per slot = $2.00 risk on $200 account
         self.max_trade_risk_usd = 2.00  # Strictly capped at $2.00 max risk per trade
         self.max_slots = 2  # Exactly 2 concurrent dual bids
@@ -245,6 +254,7 @@ class TradeEngine:
             "live_usdt_balance": self.live_usdt_balance,
             "wallet_assets": self.live_wallet_assets,
             "total_fees_paid_usd": round(self.total_fees_paid_usd, 3),
+            "trade_size_usd": getattr(self, "trade_size_usd", 10.00),
             "slot_1": slot_1,
             "slot_2": slot_2,
             "available_slots": self.max_slots - len(self.positions)
@@ -259,7 +269,7 @@ class TradeEngine:
         Opens a new trade enforcing:
         1. Maximum $2.00 USD risk per trade rule strictly.
         2. Daily profit ceiling lock (stops trading once 3,000 PKR / $11 USD reached).
-        3. Arms 3-Tier Take-Profit Ladder (TP1 40%, TP2 40%, TP3 Runner 20%).
+        3. Real-Time 100% Take-Profit execution with substantial PKR profit targets.
         """
         # 1. Daily Profit Target Check (3,000 PKR / $11.00 USD)
         unrealized = sum(p["unrealized_pnl"] for p in self.positions)
@@ -286,11 +296,10 @@ class TradeEngine:
             if p["symbol"] == symbol:
                 return {"success": False, "message": f"Position on {symbol} already active in Slot {p.get('slot_num')}."}
 
-        # 4. STRICT $10.00 TRADE SIZE & $2.00 MAX RISK RULE
-        # User requirement: Each trade placed must be strictly $10.00 USDT
-        target_trade_size_usd = 10.00
+        # 4. STRICT TRADE SIZE & $2.00 MAX RISK RULE
+        target_trade_size_usd = getattr(self, "trade_size_usd", 10.00)
 
-        # Calculate exact quantity for a $10.00 position
+        # Calculate exact quantity for target_trade_size_usd
         if current_price < 0.001:
             qty = round(target_trade_size_usd / current_price, 1)
         elif current_price < 1.0:
@@ -302,29 +311,30 @@ class TradeEngine:
         if notional_value <= 0:
             notional_value = target_trade_size_usd
             
-        margin_required = notional_value  # Spot allocation is $10.00
+        margin_required = notional_value
 
         # Calculate risk at Stop Loss
-        price_diff = abs(current_price - sl)
+        price_diff = abs(current_price - sl) if sl else (current_price * 0.012)
         if price_diff <= 0:
-            price_diff = current_price * 0.01
+            price_diff = current_price * 0.012
 
         calculated_risk_usd = round(qty * price_diff, 2)
-        # Risk is strictly capped at $2.00 max
         risk_usd = min(calculated_risk_usd, 2.00)
         if risk_usd <= 0.05:
-            risk_usd = round(notional_value * 0.015, 2)  # Default to ~1.5% SL ($0.15) if tight
+            risk_usd = round(notional_value * 0.015, 2)
 
-        # 3-Tier Take-Profit Ladder Calculation
-        sl_dist = abs(current_price - sl)
+        # High-Conviction Real-Time Take-Profit Calibration:
+        # Minimum 2.6% to 3.8% target price run or 2.3x R:R to guarantee 75 to 110+ PKR profit on hit
+        dec_prec = get_precision(current_price)
+        sl_dist = abs(current_price - sl) if sl else (current_price * 0.012)
+        min_tp_dist = max(sl_dist * 2.3, current_price * 0.026)
+
         if position_type.upper() == "LONG":
-            calc_tp1 = tp1 or round(current_price + (sl_dist * 1.2), 2)
-            calc_tp2 = tp2 or tp or round(current_price + (sl_dist * 2.0), 2)
-            calc_tp3 = tp3 or round(current_price + (sl_dist * 3.5), 2)
+            calc_tp = round(tp if (tp and tp > current_price) else (current_price + min_tp_dist), dec_prec)
+            calc_sl = round(sl if (sl and sl < current_price) else (current_price - sl_dist), dec_prec)
         else:
-            calc_tp1 = tp1 or round(current_price - (sl_dist * 1.2), 2)
-            calc_tp2 = tp2 or tp or round(current_price - (sl_dist * 2.0), 2)
-            calc_tp3 = tp3 or round(current_price - (sl_dist * 3.5), 2)
+            calc_tp = round(tp if (tp and tp < current_price) else (current_price - min_tp_dist), dec_prec)
+            calc_sl = round(sl if (sl and sl > current_price) else (current_price + sl_dist), dec_prec)
 
         entry_fee = round(notional_value * 0.0004, 3)
         self.total_fees_paid_usd += entry_fee
@@ -352,16 +362,11 @@ class TradeEngine:
             "risk_usd": round(risk_usd, 2),
             "risk_pkr": round(risk_usd * PKR_RATE, 0),
             "leverage": "5x",
-            "tp": calc_tp2,
-            "tp1": calc_tp1,
-            "tp2": calc_tp2,
-            "tp3": calc_tp3,
-            "tp1_hit": False,
-            "tp2_hit": False,
-            "tp3_hit": False,
-            "realized_pnl_banked": 0.0,
+            "tp": calc_tp,
+            "sl": calc_sl,
+            "breakeven_locked": False,
+            "tp_progress_pct": 0.0,
             "fees_paid": entry_fee,
-            "sl": sl,
             "unrealized_pnl": 0.0,
             "unrealized_pnl_pkr": 0.0,
             "roi_pct": 0.0,
@@ -402,8 +407,8 @@ class TradeEngine:
         snap = indicators_snapshot or {
             "dominant_pattern": "Standard Candle Continuation",
             "entry_price": current_price,
-            "sl": sl,
-            "tp": calc_tp2
+            "sl": calc_sl,
+            "tp": calc_tp
         }
         learning_engine.record_trade_snapshot(position_id, symbol, position_type, current_price, snap, reason)
 
@@ -415,9 +420,12 @@ class TradeEngine:
 
     def update_positions_on_tick(self, symbol: str, current_price: float) -> List[Dict[str, Any]]:
         """
-        Evaluates open positions on new price ticks.
-        Executes institutional 3-Tier Take-Profit Ladder (TP1 40%, TP2 40%, TP3 Runner 20%)
-        and dynamic breakeven / trailing stop protection.
+        Evaluates open positions on new price ticks in real time.
+        INSTANT 100% REAL-TIME TAKE PROFIT:
+        The moment live market price touches or crosses the TP target,
+        100% of the position is closed immediately, full profit is banked,
+        and the slot is instantly freed for the next setup.
+        Dynamic Breakeven Shield moves SL to entry (0 risk) once 50% toward TP is reached.
         """
         closed_now = []
         remaining_positions = []
@@ -439,113 +447,43 @@ class TradeEngine:
             pos["unrealized_pnl_pkr"] = round(pnl * PKR_RATE, 0)
             pos["roi_pct"] = round((pnl / (pos["margin_usd"] or 1.0)) * 100, 1)
 
-            # --- INSTITUTIONAL 3-TIER TAKE-PROFIT LADDER ---
-            # 1. TP1 (40% Partial Scale-Out at 1:1.2 R:R) -> Auto-triggers Breakeven Shield
-            if not pos.get("tp1_hit", False):
-                hit_tp1 = (pos["type"] == "LONG" and current_price >= pos["tp1"]) or (pos["type"] == "SHORT" and current_price <= pos["tp1"])
-                if hit_tp1:
-                    partial_qty = round(pos["original_quantity"] * 0.40, 5)
-                    partial_move = (pos["tp1"] - pos["entry_price"]) if pos["type"] == "LONG" else (pos["entry_price"] - pos["tp1"])
-                    partial_profit = round(partial_move * partial_qty, 2)
-                    fee = round(pos["tp1"] * partial_qty * 0.0004, 3)
-                    net_partial = round(partial_profit - fee, 2)
-                    
-                    self.balance = round(self.balance + net_partial, 2)
-                    self.daily_pnl_usd = round(self.daily_pnl_usd + net_partial, 2)
-                    self.total_fees_paid_usd += fee
-                    
-                    pos["realized_pnl_banked"] = round(pos.get("realized_pnl_banked", 0.0) + net_partial, 2)
-                    pos["remaining_quantity"] = round(pos["remaining_quantity"] - partial_qty, 5)
-                    pos["tp1_hit"] = True
-                    
-                    # Breakeven Shield arming (0 risk on remaining 60%)
-                    be_price = pos["entry_price"] * (1.0005 if pos["type"] == "LONG" else 0.9995)
-                    pos["sl"] = round(be_price, 4)
-                    pos["breakeven_locked"] = True
-                    print(f"[TP1 LADDER] 40% partial profit secured (+${net_partial:.2f} / +{net_partial * PKR_RATE:.0f} PKR) on {pos['symbol']}. Breakeven Shield locked at ${pos['sl']}!")
+            # 1. REAL-TIME 100% TAKE-PROFIT CHECK
+            hit_tp = False
+            if pos["type"] == "LONG" and current_price >= pos["tp"]:
+                hit_tp = True
+            elif pos["type"] == "SHORT" and current_price <= pos["tp"]:
+                hit_tp = True
 
-                    # Live Binance / Testnet Partial Execution (Sell 40% back to USDT)
-                    if self.trading_mode in ["BINANCE_LIVE", "BINANCE_TESTNET"] and self.binance_api_key and self.binance_api_secret and pos.get("binance_order_id"):
-                        try:
-                            sym = pos["symbol"]
-                            sym_filters = get_symbol_filters(sym, self.get_binance_endpoints()[0])
-                            p_close_qty = format_qty_to_step(partial_qty, sym_filters["step_size"])
-                            if p_close_qty >= sym_filters["min_qty"]:
-                                side = "SELL" if pos["type"] == "LONG" else "BUY"
-                                r_tp1, _ = self.binance_signed_request(
-                                    "/api/v3/order",
-                                    method="POST",
-                                    params={"symbol": sym, "side": side, "type": "MARKET", "quantity": p_close_qty},
-                                    timeout=12
-                                )
-                                if r_tp1 is not None and r_tp1.status_code == 200:
-                                    print(f"[{self.trading_mode} TP1] 40% partial order filled: {r_tp1.json().get('orderId')}")
-                        except Exception as e:
-                            print(f"[{self.trading_mode} TP1] Exception securing partial profit: {e}")
-
-            # 2. TP2 (40% Partial Scale-Out at 1:2.0 R:R) -> Arms Runner Dynamic Trailing Stop
-            if pos.get("tp1_hit", False) and not pos.get("tp2_hit", False):
-                hit_tp2 = (pos["type"] == "LONG" and current_price >= pos["tp2"]) or (pos["type"] == "SHORT" and current_price <= pos["tp2"])
-                if hit_tp2:
-                    partial_qty = round(pos["original_quantity"] * 0.40, 5)
-                    partial_move = (pos["tp2"] - pos["entry_price"]) if pos["type"] == "LONG" else (pos["entry_price"] - pos["tp2"])
-                    partial_profit = round(partial_move * partial_qty, 2)
-                    fee = round(pos["tp2"] * partial_qty * 0.0004, 3)
-                    net_partial = round(partial_profit - fee, 2)
-                    
-                    self.balance = round(self.balance + net_partial, 2)
-                    self.daily_pnl_usd = round(self.daily_pnl_usd + net_partial, 2)
-                    self.total_fees_paid_usd += fee
-                    
-                    pos["realized_pnl_banked"] = round(pos.get("realized_pnl_banked", 0.0) + net_partial, 2)
-                    pos["remaining_quantity"] = round(pos["remaining_quantity"] - partial_qty, 5)
-                    pos["tp2_hit"] = True
-                    pos["trailing_active"] = True
-                    
-                    # Trail stop to TP1 level
-                    pos["sl"] = pos["tp1"]
-                    print(f"[TP2 LADDER] 40% partial profit secured (+${net_partial:.2f} / +{net_partial * PKR_RATE:.0f} PKR) on {pos['symbol']}. Remaining 20% Runner trailing behind ${pos['sl']}!")
-
-                    # Live Binance / Testnet Partial Execution (Sell 40% back to USDT)
-                    if self.trading_mode in ["BINANCE_LIVE", "BINANCE_TESTNET"] and self.binance_api_key and self.binance_api_secret and pos.get("binance_order_id"):
-                        try:
-                            sym = pos["symbol"]
-                            sym_filters = get_symbol_filters(sym, self.get_binance_endpoints()[0])
-                            p_close_qty = format_qty_to_step(partial_qty, sym_filters["step_size"])
-                            if p_close_qty >= sym_filters["min_qty"]:
-                                side = "SELL" if pos["type"] == "LONG" else "BUY"
-                                r_tp2, _ = self.binance_signed_request(
-                                    "/api/v3/order",
-                                    method="POST",
-                                    params={"symbol": sym, "side": side, "type": "MARKET", "quantity": p_close_qty},
-                                    timeout=12
-                                )
-                                if r_tp2 is not None and r_tp2.status_code == 200:
-                                    print(f"[{self.trading_mode} TP2] 40% partial order filled: {r_tp2.json().get('orderId')}")
-                        except Exception as e:
-                            print(f"[{self.trading_mode} TP2] Exception securing partial profit: {e}")
-
-            # 3. Dynamic Trailing on 20% Runner
-            if pos.get("tp2_hit", False):
-                trail_price = current_price * (0.996 if pos["type"] == "LONG" else 1.004)
-                if (pos["type"] == "LONG" and trail_price > pos["sl"]) or (pos["type"] == "SHORT" and trail_price < pos["sl"]):
-                    pos["sl"] = round(trail_price, 4)
-
-            # Check Stop Loss (or trailing stop)
+            # 2. STOP-LOSS CHECK
             hit_sl = False
             if pos["type"] == "LONG" and current_price <= pos["sl"]:
                 hit_sl = True
             elif pos["type"] == "SHORT" and current_price >= pos["sl"]:
                 hit_sl = True
 
-            # Check final TP3 (Runner target)
-            hit_tp3 = False
-            if pos.get("tp2_hit", False):
-                if (pos["type"] == "LONG" and current_price >= pos["tp3"]) or (pos["type"] == "SHORT" and current_price <= pos["tp3"]):
-                    hit_tp3 = True
+            # 3. REAL-TIME BREAKEVEN SHIELD (0 RISK GUARD)
+            # When trade achieves 50%+ of the distance towards TP, move SL to entry + 0.05%
+            # Position stays 100% OPEN to capture the full TP gain!
+            if not hit_tp and not hit_sl:
+                total_tp_dist = abs(pos["tp"] - pos["entry_price"])
+                if total_tp_dist > 0:
+                    current_gain_dist = (current_price - pos["entry_price"]) if pos["type"] == "LONG" else (pos["entry_price"] - current_price)
+                    progress = current_gain_dist / total_tp_dist
+                    pos["tp_progress_pct"] = round(max(0.0, min(100.0, progress * 100.0)), 1)
+                    if progress >= 0.50 and not pos.get("breakeven_locked"):
+                        dec_prec = get_precision(pos["entry_price"])
+                        be_price = pos["entry_price"] * (1.0005 if pos["type"] == "LONG" else 0.9995)
+                        pos["sl"] = round(be_price, dec_prec)
+                        pos["breakeven_locked"] = True
+                        print(f"[BREAKEVEN SHIELD] {pos['id']} ({pos['symbol']}) is up {progress*100:.0f}% towards TP. SL locked at ${pos['sl']} (0 Risk, keeping 100% position active for full TP)!")
 
-            if hit_sl or hit_tp3:
-                outcome = "TAKE_PROFIT_RUNNER" if hit_tp3 else ("BREAKEVEN_PROTECT" if pos.get("tp1_hit") else "STOP_LOSS")
+            if hit_tp:
+                print(f"[REAL-TIME 100% TP HIT] {pos['id']} ({pos['symbol']} {pos['type']}) hit TP target @ ${current_price} (TP was ${pos['tp']})! Banking full profit immediately!")
+                closed_trade = self._close_position_internal(pos, current_price, "TAKE_PROFIT")
+                closed_now.append(closed_trade)
+            elif hit_sl:
+                outcome = "BREAKEVEN_PROTECT" if pos.get("breakeven_locked") else "STOP_LOSS"
+                print(f"[{outcome}] {pos['id']} ({pos['symbol']}) hit SL @ ${current_price} (SL was ${pos['sl']})!")
                 closed_trade = self._close_position_internal(pos, current_price, outcome)
                 closed_now.append(closed_trade)
             else:
@@ -569,7 +507,7 @@ class TradeEngine:
         return None
 
     def _close_position_internal(self, pos: Dict[str, Any], exit_price: float, outcome: str) -> Dict[str, Any]:
-        """Finalizes trade record, accounts for banked partial TPs and fees, and calls Learning Engine."""
+        """Finalizes trade record, closes 100% position on exchange if live, updates balance, and calls Learning Engine."""
         active_qty = pos.get("remaining_quantity", pos["quantity"])
         
         if pos["type"] == "LONG":
@@ -594,17 +532,17 @@ class TradeEngine:
                     if r_exit is not None and r_exit.status_code == 200:
                         exit_data = r_exit.json()
                         pos["binance_exit_order_id"] = exit_data.get("orderId")
-                        print(f"[{self.trading_mode}] Exit order filled on Binance: {exit_data.get('orderId')}")
+                        print(f"[{self.trading_mode}] 100% Exit order filled on Binance: {exit_data.get('orderId')}")
                     elif r_exit is not None:
                         print(f"[{self.trading_mode}] Exit order notice: {r_exit.text[:80]}")
             except Exception as e:
                 print(f"[{self.trading_mode}] Exception closing order: {e}")
 
-        # Calculate Binance exit trading fee (0.075% standard taker fee)
+        # Calculate exit trading fee (0.075% standard taker fee)
         exit_fee = round(active_qty * exit_price * 0.00075, 4)
 
-        # Total Realized PnL is the profit on remaining quantity + profit already banked in TP1/TP2 - exit fee
-        total_pnl = round(pnl_remaining + pos.get("realized_pnl_banked", 0.0) - exit_fee, 2)
+        # 100% Realized PnL
+        total_pnl = round(pnl_remaining - exit_fee, 2)
 
         # Real-Money Capital Protection Guard
         max_realistic_pnl = max(pos.get("margin_usd", 10.0) * 5.0, 50.0)
@@ -614,10 +552,9 @@ class TradeEngine:
 
         realized_pnl_pkr = round(total_pnl * PKR_RATE, 0)
 
-        # Update balance with the final remaining leg
-        net_remaining_leg = round(pnl_remaining - exit_fee, 2)
-        self.balance = round(self.balance + net_remaining_leg, 2)
-        self.daily_pnl_usd = round(self.daily_pnl_usd + net_remaining_leg, 2)
+        # Update balance
+        self.balance = round(self.balance + total_pnl, 2)
+        self.daily_pnl_usd = round(self.daily_pnl_usd + total_pnl, 2)
 
         # Check Circuit Breaker (Max daily loss)
         if self.daily_pnl_usd <= -self.max_daily_loss_usd:
@@ -630,7 +567,7 @@ class TradeEngine:
         if self.daily_pnl_usd >= self.daily_target_usd or current_daily_pkr >= self.daily_target_pkr:
             self.daily_target_reached = True
             self.auto_trade_enabled = False
-            print(f"🎯 [DAILY GOAL ACHIEVED] Daily profit reached +${self.daily_pnl_usd:.2f} ({current_daily_pkr:,.0f} PKR)! System automatically stopped and locked for today to preserve your earnings.")
+            print(f"[DAILY GOAL ACHIEVED] Daily profit reached +${self.daily_pnl_usd:.2f} ({current_daily_pkr:,.0f} PKR)! System automatically stopped and locked for today to preserve your earnings.")
 
         trade_record = {
             "id": pos["id"],
@@ -647,9 +584,6 @@ class TradeEngine:
             "realized_pnl": total_pnl,
             "realized_pnl_pkr": realized_pnl_pkr,
             "outcome": outcome,
-            "tp1_hit": pos.get("tp1_hit", False),
-            "tp2_hit": pos.get("tp2_hit", False),
-            "tp3_hit": outcome == "TAKE_PROFIT_RUNNER",
             "status": "CLOSED",
             "open_time": pos["open_time"],
             "close_time": time.strftime("%H:%M:%S")

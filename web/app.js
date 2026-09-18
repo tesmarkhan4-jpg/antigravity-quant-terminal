@@ -764,39 +764,56 @@ document.addEventListener("DOMContentLoaded", () => {
             ${pkrText}
           </span>
         </div>
-        ${buildTpLadderHtml(pos)}
+        ${buildTpTargetHtml(pos)}
       </div>
     `;
   }
 
-  function buildTpLadderHtml(pos) {
+  function buildTpTargetHtml(pos) {
     if (!pos) return "";
-    const tp1Hit = pos.tp1_hit;
-    const tp2Hit = pos.tp2_hit;
-    const runnerActive = pos.trailing_active;
-    const tp1Price = pos.tp1 ? formatCryptoPrice(pos.tp1) : "1.2R";
-    const tp2Price = pos.tp2 ? formatCryptoPrice(pos.tp2) : "2.0R";
-    const tp3Price = pos.tp3 ? formatCryptoPrice(pos.tp3) : "3.5R";
+    const isLong = pos.type === "LONG";
+    const tpPrice = pos.tp ? formatCryptoPrice(pos.tp) : "-";
+    const entryPrice = pos.entry_price || pos.current_price;
+    
+    // Target price move percentage
+    const movePct = entryPrice > 0 ? Math.abs((pos.tp - entryPrice) / entryPrice * 100).toFixed(2) : "0.0";
+    
+    // Expected Profit in USD and PKR on 100% position
+    const estGainUsd = Math.abs(pos.tp - entryPrice) * (pos.quantity || 0);
+    const estGainPkr = Math.round(estGainUsd * 280);
+
+    // Live progress towards TP
+    let progressPct = 0;
+    const totalDist = Math.abs(pos.tp - entryPrice);
+    if (totalDist > 0) {
+      const liveDist = isLong ? (pos.current_price - entryPrice) : (entryPrice - pos.current_price);
+      progressPct = Math.min(100, Math.max(0, Math.round((liveDist / totalDist) * 100)));
+    }
+    const isTpHit = (isLong && pos.current_price >= pos.tp) || (!isLong && pos.current_price <= pos.tp);
 
     return `
-      <div class="tp-ladder-container">
-        <div class="tp-ladder-title-row">
-          <span>3-Tier Profit Ladder</span>
-          <span class="ladder-status">${runnerActive ? '🚀 Trailing Runner' : (pos.breakeven_locked ? '🛡️ BE Shield' : 'Arming TP1')}</span>
+      <div class="tp-target-container">
+        <div class="tp-target-header">
+          <span>🎯 Take-Profit Target</span>
+          <span class="tp-auto-badge ${pos.breakeven_locked ? 'shield' : ''}">
+            ${isTpHit ? '⚡ Closing 100%...' : (pos.breakeven_locked ? '🛡️ BE Shield Active' : '⚡ 100% Auto Real-Time')}
+          </span>
         </div>
-        <div class="tp-ladder-steps">
-          <div class="tp-step-box ${tp1Hit ? 'hit' : ''}">
-            <span class="step-label">TP1 (40%)</span>
-            <span class="step-price mono">${tp1Hit ? '✓ Banked' : tp1Price}</span>
+        <div class="tp-target-metrics">
+          <div>
+            <span class="mono tp-target-val">${tpPrice}</span>
+            <span class="mono" style="font-size:0.72rem; color:#94A3B8; margin-left:4px;">(+${movePct}%)</span>
           </div>
-          <div class="tp-step-box ${tp2Hit ? 'hit' : ''}">
-            <span class="step-label">TP2 (40%)</span>
-            <span class="step-price mono">${tp2Hit ? '✓ Banked' : tp2Price}</span>
+          <div class="mono tp-target-gain">
+            Est: +$${estGainUsd.toFixed(2)} (+${estGainPkr} PKR)
           </div>
-          <div class="tp-step-box runner ${runnerActive ? 'active' : ''}">
-            <span class="step-label">Runner (20%)</span>
-            <span class="step-price mono">${runnerActive ? '🚀 Trailing' : tp3Price}</span>
-          </div>
+        </div>
+        <div class="tp-progress-bar-bg">
+          <div class="tp-progress-bar-fill ${isTpHit ? 'hit' : ''}" style="width: ${isTpHit ? 100 : progressPct}%;"></div>
+        </div>
+        <div class="tp-progress-label">
+          <span>Progress: <strong class="mono text-white">${isTpHit ? '100% (TARGET REACHED)' : `${progressPct}%`}</strong></span>
+          <span>${isTpHit ? 'Executing 100% Bank' : (pos.breakeven_locked ? 'Risk-Free Locked' : 'Trailing to TP')}</span>
         </div>
       </div>
     `;
@@ -1052,6 +1069,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const notionalUsd = pos.notional_usd || (pos.quantity * pos.entry_price) || 0;
       const riskUsd = pos.risk_usd || 2.00;
       const riskPkr = pos.risk_pkr || Math.round(riskUsd * 280);
+      const isTpHit = (isLong && pos.current_price >= pos.tp) || (!isLong && pos.current_price <= pos.tp);
 
       row.innerHTML = `
         <td><strong style="color: #6366F1;">Slot ${pos.slot_num || 1}</strong></td>
@@ -1063,8 +1081,11 @@ document.addEventListener("DOMContentLoaded", () => {
           <div class="mono text-muted" style="font-size: 0.68rem;">${pos.quantity} ${baseAsset}</div>
         </td>
         <td class="mono">${formatCryptoPrice(pos.entry_price)}</td>
-        <td class="mono">${formatCryptoPrice(pos.current_price)}</td>
-        <td class="text-success mono font-semibold">${formatCryptoPrice(pos.tp)}</td>
+        <td class="mono font-semibold" style="${isTpHit ? 'color:#10B981; font-weight:800;' : ''}">${formatCryptoPrice(pos.current_price)}</td>
+        <td>
+          ${isTpHit ? '<div style="font-size:0.65rem; color:#34D399; font-weight:800; animation:pulse 1s infinite;">⚡ REACHED - CLOSING</div>' : ''}
+          <div class="text-success mono font-semibold">${formatCryptoPrice(pos.tp)}</div>
+        </td>
         <td>
           <div class="text-danger mono font-semibold">${formatCryptoPrice(pos.sl)}</div>
           <div class="mono" style="font-size: 0.68rem; color: #FCA5A5;">Max Loss: $${riskUsd.toFixed(2)} (${riskPkr} PKR)</div>
@@ -1098,6 +1119,17 @@ document.addEventListener("DOMContentLoaded", () => {
       const baseAsset = (trd.symbol || "").replace("USDT", "");
       const notionalUsd = trd.notional_usd || (trd.quantity * trd.entry_price) || (trd.quantity * trd.exit_price) || 0;
 
+      let outcomeBadge = `<span class="badge-tag">${trd.outcome}</span>`;
+      if (trd.outcome === 'TAKE_PROFIT' || trd.outcome === 'TAKE_PROFIT_RUNNER') {
+        outcomeBadge = `<span class="badge-tag success" style="background:rgba(16,185,129,0.22); border:1px solid #10B981; color:#34D399; font-weight:800;">🎯 TAKE_PROFIT</span>`;
+      } else if (trd.outcome === 'BREAKEVEN_PROTECT') {
+        outcomeBadge = `<span class="badge-tag" style="background:rgba(56,189,248,0.18); border:1px solid #38BDF8; color:#38BDF8; font-weight:800;">🛡️ BREAKEVEN_PROTECT</span>`;
+      } else if (trd.outcome === 'STOP_LOSS') {
+        outcomeBadge = `<span class="badge-tag" style="background:rgba(239,68,68,0.18); border:1px solid #EF4444; color:#F87171; font-weight:800;">🛑 STOP_LOSS</span>`;
+      } else if (trd.outcome === 'MANUAL_CLOSE') {
+        outcomeBadge = `<span class="badge-tag" style="background:rgba(168,85,247,0.18); border:1px solid #A855F7; color:#D8B4FE; font-weight:800;">⚡ MANUAL_CLOSE</span>`;
+      }
+
       row.innerHTML = `
         <td class="mono text-muted">${trd.close_time}</td>
         <td><strong class="mono text-white">${trd.id} <span style="font-size:0.7rem; color:#818CF8; font-weight:700;">(${trd.symbol || ''})</span></strong></td>
@@ -1107,7 +1139,7 @@ document.addEventListener("DOMContentLoaded", () => {
           ${trd.quantity ? `<span class="mono text-muted" style="font-size: 0.68rem;"> (${trd.quantity} ${baseAsset})</span>` : ''}
         </td>
         <td class="mono">${formatCryptoPrice(trd.exit_price)}</td>
-        <td><span class="badge-tag ${trd.outcome === 'TAKE_PROFIT' || trd.outcome.includes('PROFIT') || trd.realized_pnl > 0 ? 'success' : ''}">${trd.outcome}</span></td>
+        <td>${outcomeBadge}</td>
         <td class="${pnlClass}"><strong>${trd.realized_pnl >= 0 ? "+" : ""}$${trd.realized_pnl.toFixed(2)}</strong></td>
         <td class="${pnlClass}">${trd.realized_pnl_pkr >= 0 ? "+" : ""}${Math.round(trd.realized_pnl_pkr).toLocaleString()} PKR</td>
       `;
