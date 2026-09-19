@@ -71,6 +71,8 @@ class SettingsRequest(BaseModel):
     auto_trade: bool = True
     risk_pct: float = 1.0
     trade_size_usd: Optional[float] = None
+    scalping_mode: Optional[bool] = None
+    scalper_interval: Optional[str] = None
     gemini_key: Optional[str] = ""
     pkr_rate: Optional[float] = None
     daily_target_pkr: Optional[float] = None
@@ -116,8 +118,10 @@ async def market_monitoring_loop():
             flow_active = fetch_order_flow_cvd(current_symbol)
             latest_order_book = ob_active
 
-            # 2. Fetch candles for all 12 pairs in parallel
-            multi_candles = fetch_multi_pair_klines(symbols_list, current_interval, limit=60)
+            # 2. Fetch candles for all 24 pairs in parallel (using rapid scalping interval if enabled)
+            is_scalping = getattr(trade_engine, "scalping_mode", True)
+            scan_interval = getattr(trade_engine, "scalper_interval", "5m") if is_scalping else current_interval
+            multi_candles = fetch_multi_pair_klines(symbols_list, scan_interval, limit=60)
             radar_entries = []
 
             for sym, candles in multi_candles.items():
@@ -218,10 +222,17 @@ async def market_monitoring_loop():
                         if sym in existing_symbols:
                             continue  # Do not duplicate symbol in both slots
 
-                        # High-Probability Execution Filter: Directional edge (LONG or SHORT) with Win Prob >= 62% and learned pattern health
+                        # High-Probability Execution Filter: Directional edge (LONG or SHORT)
                         is_actionable = candidate["action"] in ["LONG", "SHORT"]
-                        has_statistical_edge = candidate["win_prob"] >= 62 and candidate.get("confidence", 60) >= 60
-                        pattern_healthy = candidate.get("multiplier", 1.0) >= 0.90
+                        
+                        # Real Binance Spot Compliance: On Binance Spot, opening a position requires buying with USDT
+                        if trade_engine.trading_mode in ["BINANCE_LIVE", "BINANCE_TESTNET"] and candidate["action"] != "LONG":
+                            continue
+
+                        min_prob = 58 if is_scalping else 62
+                        min_conf = 55 if is_scalping else 60
+                        has_statistical_edge = candidate["win_prob"] >= min_prob and candidate.get("confidence", 60) >= min_conf
+                        pattern_healthy = candidate.get("multiplier", 1.0) >= 0.85
 
                         if is_actionable and has_statistical_edge and pattern_healthy and candidate.get("gatekeeper_passed", False):
                             # Pin live execution price and levels
@@ -230,10 +241,11 @@ async def market_monitoring_loop():
                                 live_p = candidate["price"]
 
                             sl_dist = abs(candidate["price"] - candidate["sl"]) if candidate.get("sl") else (live_p * 0.012)
-                            sl_dist = max(sl_dist, live_p * 0.008)
+                            sl_dist = max(sl_dist, live_p * 0.007)
                             dec_prec = 5 if live_p < 0.1 else (4 if live_p < 2.0 else (3 if live_p < 50.0 else 2))
-                            # Calibrate TP target for solid 2.8% to 3.8% target price run (2.3x R:R) to bank 75 to 110+ PKR
-                            tp_dist = max(sl_dist * 2.3, live_p * 0.028)
+                            
+                            # Scalper TP: 1.8% to 2.8% quick run (2.0x R:R) for fast multiple trades per hour
+                            tp_dist = max(sl_dist * 2.0, live_p * 0.018) if is_scalping else max(sl_dist * 2.3, live_p * 0.028)
 
                             if candidate["action"] == "LONG":
                                 entry_p = live_p
@@ -256,7 +268,8 @@ async def market_monitoring_loop():
                             if res.get("success"):
                                 available_slots -= 1
                                 existing_symbols.add(sym)
-                                print(f"[Autonomous Dual-Bid] Placed {candidate['action']} on {sym} @ ${entry_p:,.4f} | TP @ ${tp_p:,.4f} | Instant 100% Real-Time TP Armed!")
+                                mode_tag = "5m Scalp" if is_scalping else "Swing"
+                                print(f"[Autonomous Dual-Bid] Placed {candidate['action']} {mode_tag} on {sym} @ ${entry_p:,.4f} | TP @ ${tp_p:,.4f} | Instant 100% Real-Time TP Armed!")
 
             # 4. Broadcast to all active WebSocket clients
             if active_connections:
@@ -472,7 +485,13 @@ def update_settings(settings: SettingsRequest):
         PKR_RATE = settings.pkr_rate
         trade_engine.pkr_rate = settings.pkr_rate
     if settings.trade_size_usd and settings.trade_size_usd >= 5.0:
-        trade_engine.trade_size_usd = min(settings.trade_size_usd, 50.0)
+        trade_engine.trade_size_usd = settings.trade_size_usd
+    if settings.scalping_mode is not None:
+        trade_engine.scalping_mode = settings.scalping_mode
+    if settings.scalper_interval and settings.scalper_interval in INTERVALS:
+        global current_interval
+        trade_engine.scalper_interval = settings.scalper_interval
+        current_interval = settings.scalper_interval
     if settings.daily_target_pkr and settings.daily_target_pkr > 0:
         trade_engine.daily_target_pkr_max = settings.daily_target_pkr
         trade_engine.daily_target_pkr_min = settings.daily_target_pkr * 0.5

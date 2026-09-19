@@ -19,31 +19,45 @@ BINANCE_ENDPOINTS = [
 # In-memory cache for uninterrupted streaming
 _last_known_candles: Dict[str, List[Dict[str, Any]]] = {}
 
-# Top 12 Liquid Crypto Pairs for Institutional Multi-Pair Opportunity Radar
+# Top 24 High-Volatility & Liquid Binance Pairs for Multi-Currency Scanner
 SUPPORTED_SYMBOLS = {
+    # Top Major Liquid Anchors
     "BTCUSDT": "BTC / USDT (Bitcoin)",
     "ETHUSDT": "ETH / USDT (Ethereum)",
     "SOLUSDT": "SOL / USDT (Solana)",
     "BNBUSDT": "BNB / USDT (Binance Coin)",
     "XRPUSDT": "XRP / USDT (Ripple)",
     "ADAUSDT": "ADA / USDT (Cardano)",
-    "DOGEUSDT": "DOGE / USDT (Dogecoin)",
     "AVAXUSDT": "AVAX / USDT (Avalanche)",
     "LINKUSDT": "LINK / USDT (Chainlink)",
     "NEARUSDT": "NEAR / USDT (NEAR Protocol)",
     "SUIUSDT": "SUI / USDT (Sui)",
-    "MATICUSDT": "MATIC / USDT (Polygon)"
+    "APTUSDT": "APT / USDT (Aptos)",
+    "INJUSDT": "INJ / USDT (Injective)",
+    "MATICUSDT": "MATIC / USDT (Polygon)",
+    "FTMUSDT": "FTM / USDT (Fantom)",
+    # High-Beta Volatility & Fast Scalping Movers
+    "DOGEUSDT": "DOGE / USDT (Dogecoin)",
+    "PEPEUSDT": "PEPE / USDT (Pepe)",
+    "SHIBUSDT": "SHIB / USDT (Shiba Inu)",
+    "WIFUSDT": "WIF / USDT (dogwifhat)",
+    "FETUSDT": "FET / USDT (Artificial Superintelligence)",
+    "RENDERUSDT": "RENDER / USDT (Render)",
+    "TAOUSDT": "TAO / USDT (Bittensor)",
+    "TIAUSDT": "TIA / USDT (Celestia)",
+    "ARBUSDT": "ARB / USDT (Arbitrum)",
+    "OPUSDT": "OP / USDT (Optimism)"
 }
 
 INTERVALS = ["1m", "5m", "15m", "1h", "4h", "1d"]
 
-def fetch_multi_pair_klines(symbols: List[str], interval: str = "15m", limit: int = 60) -> Dict[str, List[Dict[str, Any]]]:
+def fetch_multi_pair_klines(symbols: List[str], interval: str = "5m", limit: int = 60) -> Dict[str, List[Dict[str, Any]]]:
     """
     Fetches candles for multiple symbols concurrently using thread pool.
-    Ensures the 12-pair radar updates with zero UI lag.
+    Ensures the 24-pair radar updates with zero UI lag.
     """
     results = {}
-    with ThreadPoolExecutor(max_workers=6) as executor:
+    with ThreadPoolExecutor(max_workers=10) as executor:
         future_to_symbol = {executor.submit(fetch_klines, s, interval, limit): s for s in symbols}
         for future in future_to_symbol:
             sym = future_to_symbol[future]

@@ -97,6 +97,12 @@
         <span class="wallet-val mono" id="headerWalletUsdt">$0.00 USDT</span>
       </div>
 
+      <!-- Live Rapid Scalper Status Chip -->
+      <div class="scalper-badge-chip" id="headerScalperChip" title="Rapid 5m Scalper: Fast Momentum Turns across 24 Pairs">
+        <span class="scalper-dot"></span>
+        <span class="scalper-text" id="headerScalperText">5M SCALPER</span>
+      </div>
+
       <!-- Dual-Bid Autonomous Toggle -->
       <div class="auto-trade-toggle-wrap" title="Autonomous Dual-Bid High-Probability Auto-Trading">
         <span class="toggle-label">Auto-Pilot:</span>
@@ -238,14 +244,14 @@
       <!-- =================================================================== -->
       <div class="workstation-col left-col">
         
-        <!-- 12-Pair Opportunity Radar Card (Fixed Column Widths, No Cut-Offs) -->
+        <!-- 24-Pair High-Volatility Market Radar -->
         <div class="card glass-panel radar-card">
           <div class="card-header">
             <div class="card-title-group">
               <span class="card-icon">📡</span>
-              <h2 class="card-title">12-Pair Market Radar</h2>
+              <h2 class="card-title">24-Pair Volatility Radar</h2>
             </div>
-            <span class="live-tag">● SCANNER</span>
+            <span class="live-tag">● 24 COINS SCANNED</span>
           </div>
 
           <div class="radar-scroll-wrap">
@@ -261,7 +267,7 @@
               </thead>
               <tbody id="radarTableBody">
                 <tr class="empty-row">
-                  <td colspan="5">Scanning 12 liquid markets concurrently...</td>
+                  <td colspan="5">Scanning 24 liquid crypto pairs for highest-conviction setup...</td>
                 </tr>
               </tbody>
             </table>
@@ -775,9 +781,46 @@
               <input type="number" id="dailyTargetPkrInput" class="styled-input" value="3000">
             </div>
           </div>
-          <div class="form-group">
-            <label for="maxRiskPctInput">Maximum Risk Per Trade (%):</label>
-            <input type="number" id="maxRiskPctInput" class="styled-input" step="0.1" value="1.0">
+          <div class="grid-2col">
+            <div class="form-group">
+              <label for="tradeSizeUsdInput">Trade Size Per Slot (USD - Min $10 Binance Rule):</label>
+              <input type="number" id="tradeSizeUsdInput" class="styled-input" min="10" step="5" value="10" placeholder="e.g. 10, 15, 20">
+            </div>
+            <div class="form-group">
+              <label for="maxRiskPctInput">Maximum Risk Per Trade (% - Max $2 Cap):</label>
+              <input type="number" id="maxRiskPctInput" class="styled-input" step="0.1" value="1.0">
+            </div>
+          </div>
+        </div>
+
+        <!-- High-Frequency Scalping Engine (Multi-Trades Per Hour) -->
+        <div class="modal-section">
+          <div class="section-title-row">
+            <h4 class="modal-section-title">⚡ High-Frequency Scalping Engine</h4>
+            <span class="badge-tag success" id="modalScalperBadge">5M SCALPER ACTIVE</span>
+          </div>
+          <p class="modal-desc">
+            Scans 24 top volatile Binance pairs on 1m/5m fast timeframes. Trades enter on high-momentum breakouts and auto-close 100% at 1.8% - 2.8% Take-Profit targets in minutes to bank multiple wins per hour.
+          </p>
+          <div class="grid-2col">
+            <div class="form-group">
+              <label for="scalpingModeSelect">Scalping Strategy:</label>
+              <select id="scalpingModeSelect" class="styled-select-modal">
+                <option value="true" selected>⚡ Rapid Scalper Mode (Fast 1m/5m Turnaround)</option>
+                <option value="false">📊 Macro Swing Mode (15m/1h Slower Swings)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="scalperIntervalSelect">Scalper Timeframe:</label>
+              <select id="scalperIntervalSelect" class="styled-select-modal">
+                <option value="5m" selected>5m Candlestick (Recommended - High Win Rate)</option>
+                <option value="1m">1m Candlestick (Hyper-Fast Scalping)</option>
+                <option value="15m">15m Candlestick (Standard Momentum)</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top: 8px; padding: 8px 12px; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 6px; font-size: 0.72rem; color: #A7F3D0; line-height: 1.4;">
+            🛡️ <strong>Binance Real-Time T&C Compliance Active:</strong> MIN_NOTIONAL ≥ $10.00 enforced | LOT_SIZE stepSize aligned | Spot USDT Buy-In / Sell-Out mechanics active.
           </div>
         </div>
 

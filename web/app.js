@@ -149,7 +149,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const binanceApiSecretInput = document.getElementById("apiSecretInput") || document.getElementById("binanceApiSecretInput");
   const pkrRateInput = document.getElementById("pkrRateInput");
   const dailyTargetPkrInput = document.getElementById("dailyTargetPkrInput");
+  const tradeSizeUsdInput = document.getElementById("tradeSizeUsdInput");
   const maxRiskPctInput = document.getElementById("maxRiskPctInput");
+  const scalpingModeSelect = document.getElementById("scalpingModeSelect");
+  const scalperIntervalSelect = document.getElementById("scalperIntervalSelect");
+  const modalScalperBadge = document.getElementById("modalScalperBadge");
+  const headerScalperChip = document.getElementById("headerScalperChip");
+  const headerScalperText = document.getElementById("headerScalperText");
   const testExchangeBtn = document.getElementById("testExchangeBtn");
   const exchangeStatusMsg = document.getElementById("exchangeStatusMsg");
   const modalExchangeBadge = document.getElementById("modalExchangeBadge");
@@ -636,6 +642,21 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
+    // Update Scalper Header Chip & Modal Badge
+    if (headerScalperText) {
+      if (acc.scalping_mode !== false) {
+        const intervalStr = (acc.scalper_interval || "5m").toUpperCase();
+        headerScalperText.textContent = `${intervalStr} SCALPER`;
+        if (headerScalperChip) headerScalperChip.title = `Rapid ${intervalStr} Scalper: Fast Momentum Turns across 24 Pairs (Click for Settings)`;
+      } else {
+        headerScalperText.textContent = "MACRO SWING";
+        if (headerScalperChip) headerScalperChip.title = `Macro Swing Mode: 15m/1h Swings (Click for Settings)`;
+      }
+    }
+    if (modalScalperBadge) {
+      modalScalperBadge.textContent = acc.scalping_mode !== false ? `${(acc.scalper_interval || "5m").toUpperCase()} SCALPER ACTIVE` : "SWING MODE ACTIVE";
+    }
+
     // Render Wallet Assets in Modal
     if (acc.wallet_assets) {
       renderWalletAssetsModal(acc.wallet_assets, acc.live_usdt_balance);
@@ -695,8 +716,8 @@ document.addEventListener("DOMContentLoaded", () => {
       slot1Body.innerHTML = `
         <div class="empty-slot-wrap">
           <span class="empty-slot-icon">🔍</span>
-          <div class="empty-slot-text">Scanning 12 pairs for #1 Highest-Conviction A+ Setup...</div>
-          <div class="empty-slot-sub">Auto 1:2 R:R Guard & 3-Tier Take-Profit Ladder Armed</div>
+          <div class="empty-slot-text">Scanning 24 pairs for #1 Highest-Conviction A+ Setup...</div>
+          <div class="empty-slot-sub">Auto 1:2 R:R Guard & Rapid Take-Profit Execution Armed</div>
         </div>`;
     }
 
@@ -713,7 +734,7 @@ document.addEventListener("DOMContentLoaded", () => {
       slot2Body.innerHTML = `
         <div class="empty-slot-wrap">
           <span class="empty-slot-icon">🔍</span>
-          <div class="empty-slot-text">Scanning 12 pairs for #2 Highest-Conviction A+ Setup...</div>
+          <div class="empty-slot-text">Scanning 24 pairs for #2 Highest-Conviction A+ Setup...</div>
           <div class="empty-slot-sub">Trailing Breakeven Shield & Runner Mode Ready</div>
         </div>`;
     }
@@ -1504,6 +1525,13 @@ document.addEventListener("DOMContentLoaded", () => {
           if (pkrRateInput && cfg.account.pkr_rate) pkrRateInput.value = cfg.account.pkr_rate;
           if (dailyTargetPkrInput && cfg.account.daily_target_pkr_max) dailyTargetPkrInput.value = cfg.account.daily_target_pkr_max;
           if (maxRiskPctInput && cfg.account.risk_per_trade_pct) maxRiskPctInput.value = cfg.account.risk_per_trade_pct;
+          if (tradeSizeUsdInput && cfg.account.trade_size_usd) tradeSizeUsdInput.value = cfg.account.trade_size_usd;
+          if (scalpingModeSelect && cfg.account.scalping_mode !== undefined) {
+            scalpingModeSelect.value = cfg.account.scalping_mode ? "true" : "false";
+          }
+          if (scalperIntervalSelect && cfg.account.scalper_interval) {
+            scalperIntervalSelect.value = cfg.account.scalper_interval;
+          }
         }
         if (exchangeStatusMsg) {
           if (cfg.exchange_connected) {
@@ -1529,6 +1557,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (openSettingsBtn) openSettingsBtn.addEventListener("click", loadSettingsData);
   if (walletBalanceChip) walletBalanceChip.addEventListener("click", loadSettingsData);
+  if (headerScalperChip) headerScalperChip.addEventListener("click", loadSettingsData);
 
   if (closeModalBtn) closeModalBtn.addEventListener("click", () => settingsModal.classList.add("hidden"));
   if (cancelSettingsBtn) cancelSettingsBtn.addEventListener("click", () => settingsModal.classList.add("hidden"));
@@ -1554,6 +1583,9 @@ document.addEventListener("DOMContentLoaded", () => {
         const pkrRate = pkrRateInput ? parseFloat(pkrRateInput.value) : 280;
         const dailyTarget = dailyTargetPkrInput ? parseFloat(dailyTargetPkrInput.value) : 3000;
         const riskPct = maxRiskPctInput ? parseFloat(maxRiskPctInput.value) : (riskSlider ? parseFloat(riskSlider.value) : 1.0);
+        const tradeSizeUsd = tradeSizeUsdInput ? parseFloat(tradeSizeUsdInput.value) : 10;
+        const scalpingMode = scalpingModeSelect ? (scalpingModeSelect.value === "true") : true;
+        const scalperInterval = scalperIntervalSelect ? scalperIntervalSelect.value : "5m";
 
         // 1. Save general risk & settings
         await fetch("/api/settings", {
@@ -1563,7 +1595,10 @@ document.addEventListener("DOMContentLoaded", () => {
             auto_trade: autoTradeToggle ? autoTradeToggle.checked : true,
             risk_pct: riskPct,
             pkr_rate: pkrRate,
-            daily_target_pkr: dailyTarget
+            daily_target_pkr: dailyTarget,
+            trade_size_usd: tradeSizeUsd,
+            scalping_mode: scalpingMode,
+            scalper_interval: scalperInterval
           })
         });
 

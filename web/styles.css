@@ -2385,3 +2385,48 @@ input:checked + .slider:before { transform: translateX(16px); }
   color: #38BDF8;
 }
 
+/* Scalper Status Chip in Header */
+.scalper-badge-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #34D399;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.scalper-badge-chip:hover {
+  background: rgba(16, 185, 129, 0.24);
+  border-color: #10B981;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+}
+.scalper-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10B981;
+  box-shadow: 0 0 8px #10B981;
+  animation: pulse 1.5s infinite;
+}
+
+/* 24-Pair Volatility Radar Table scroll wrap */
+.radar-scroll-wrap {
+  max-height: 480px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.radar-scroll-wrap::-webkit-scrollbar {
+  width: 4px;
+}
+.radar-scroll-wrap::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+

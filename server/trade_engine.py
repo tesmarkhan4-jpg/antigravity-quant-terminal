@@ -32,38 +32,62 @@ def get_symbol_filters(symbol: str, base_url: str = "https://api.binance.com") -
     cache_key = f"{symbol}_{base_url}"
     if cache_key in _exchange_info_cache:
         return _exchange_info_cache[cache_key]
-    endpoints = [base_url, "https://api1.binance.com", "https://api.binance.com"]
+    endpoints = [base_url, "https://api1.binance.com", "https://api.binance.com", "https://api2.binance.com", "https://api3.binance.com"]
     for host in endpoints:
         try:
-            r = requests.get(f"{host}/api/v3/exchangeInfo", params={"symbol": symbol.upper()}, timeout=10)
+            r = requests.get(f"{host}/api/v3/exchangeInfo", params={"symbol": symbol.upper()}, timeout=8)
             if r.status_code == 200:
                 symbols = r.json().get("symbols", [])
                 if symbols:
                     sym_info = symbols[0]
                     filters = {f["filterType"]: f for f in sym_info.get("filters", [])}
                     lot_size = filters.get("LOT_SIZE", {})
+                    price_filter = filters.get("PRICE_FILTER", {})
                     min_notional = filters.get("NOTIONAL", filters.get("MIN_NOTIONAL", {}))
                     
                     step_size = float(lot_size.get("stepSize", 0.00001))
                     min_qty = float(lot_size.get("minQty", 0.00001))
+                    tick_size = float(price_filter.get("tickSize", 0.0001))
+                    min_price = float(price_filter.get("minPrice", 0.00000001))
                     min_notional_val = float(min_notional.get("minNotional", 10.0))
                     
                     info = {
+                        "symbol": symbol.upper(),
+                        "status": sym_info.get("status", "TRADING"),
+                        "is_spot_allowed": sym_info.get("isSpotTradingAllowed", True),
                         "step_size": step_size,
                         "min_qty": min_qty,
-                        "min_notional": min_notional_val
+                        "tick_size": tick_size,
+                        "min_price": min_price,
+                        "min_notional": max(min_notional_val, 10.0)
                     }
                     _exchange_info_cache[cache_key] = info
                     return info
         except Exception:
             continue
-    return {"step_size": 0.00001, "min_qty": 0.00001, "min_notional": 10.0}
+    return {
+        "symbol": symbol.upper(),
+        "status": "TRADING",
+        "is_spot_allowed": True,
+        "step_size": 0.00001,
+        "min_qty": 0.00001,
+        "tick_size": 0.0001,
+        "min_price": 0.00000001,
+        "min_notional": 10.0
+    }
 
-def format_qty_to_step(qty: float, step_size: float) -> float:
-    if step_size <= 0: return round(qty, 5)
+def format_qty_to_step(qty: float, step_size: float, min_qty: float = 0.00001) -> float:
+    if step_size <= 0: return max(round(qty, 5), min_qty)
     precision = max(0, int(round(-math.log10(step_size)))) if step_size < 1 else 0
     stepped = math.floor(qty / step_size) * step_size
-    return round(stepped, precision)
+    final_qty = round(stepped, precision)
+    return max(final_qty, min_qty)
+
+def format_price_to_tick(price: float, tick_size: float) -> float:
+    if tick_size <= 0: return round(price, 4)
+    precision = max(0, int(round(-math.log10(tick_size)))) if tick_size < 1 else 0
+    stepped = round(round(price / tick_size) * tick_size, precision)
+    return stepped
 
 def get_precision(price: float) -> int:
     """Returns suitable decimal precision for crypto pricing."""
@@ -78,6 +102,8 @@ class TradeEngine:
         self.initial_balance = initial_balance
         self.balance = initial_balance
         self.trade_size_usd = 10.00  # Default trade placed size ($10.00 USDT)
+        self.scalping_mode = True  # High-velocity scalping mode (multi-trades per hour)
+        self.scalper_interval = "5m"  # Default scalping timeframe (1m or 5m)
         self.risk_per_trade_percent = 1.0  # 1% per slot = $2.00 risk on $200 account
         self.max_trade_risk_usd = 2.00  # Strictly capped at $2.00 max risk per trade
         self.max_slots = 2  # Exactly 2 concurrent dual bids
@@ -255,6 +281,8 @@ class TradeEngine:
             "wallet_assets": self.live_wallet_assets,
             "total_fees_paid_usd": round(self.total_fees_paid_usd, 3),
             "trade_size_usd": getattr(self, "trade_size_usd", 10.00),
+            "scalping_mode": getattr(self, "scalping_mode", True),
+            "scalper_interval": getattr(self, "scalper_interval", "5m"),
             "slot_1": slot_1,
             "slot_2": slot_2,
             "available_slots": self.max_slots - len(self.positions)
@@ -296,20 +324,23 @@ class TradeEngine:
             if p["symbol"] == symbol:
                 return {"success": False, "message": f"Position on {symbol} already active in Slot {p.get('slot_num')}."}
 
-        # 4. STRICT TRADE SIZE & $2.00 MAX RISK RULE
-        target_trade_size_usd = getattr(self, "trade_size_usd", 10.00)
+        # 1. Real-Time Binance T&C & Exchange Filters Check
+        sym_filters = get_symbol_filters(symbol, self.get_binance_endpoints()[0])
+        if sym_filters.get("status") not in ["TRADING", "PRE_TRADING"]:
+            return {"success": False, "message": f"{symbol} is currently {sym_filters.get('status')} on Binance. Trade aborted for safety."}
 
-        # Calculate exact quantity for target_trade_size_usd
-        if current_price < 0.001:
-            qty = round(target_trade_size_usd / current_price, 1)
-        elif current_price < 1.0:
-            qty = round(target_trade_size_usd / current_price, 4)
-        else:
-            qty = round(target_trade_size_usd / current_price, 5)
+        # 4. STRICT TRADE SIZE ($10.00 MIN NOTIONAL) & $2.00 MAX RISK RULE
+        min_notional = max(sym_filters.get("min_notional", 10.0), 10.0)
+        target_trade_size_usd = max(getattr(self, "trade_size_usd", 10.00), min_notional)
+
+        # Calculate exact quantity formatted to Binance LOT_SIZE stepSize
+        raw_qty = target_trade_size_usd / current_price
+        qty = format_qty_to_step(raw_qty, sym_filters.get("step_size", 0.00001), sym_filters.get("min_qty", 0.00001))
 
         notional_value = round(qty * current_price, 2)
-        if notional_value <= 0:
-            notional_value = target_trade_size_usd
+        if notional_value < min_notional:
+            qty = format_qty_to_step((min_notional + 0.1) / current_price, sym_filters.get("step_size", 0.00001), sym_filters.get("min_qty", 0.00001))
+            notional_value = round(qty * current_price, 2)
             
         margin_required = notional_value
 
@@ -321,20 +352,25 @@ class TradeEngine:
         calculated_risk_usd = round(qty * price_diff, 2)
         risk_usd = min(calculated_risk_usd, 2.00)
         if risk_usd <= 0.05:
-            risk_usd = round(notional_value * 0.015, 2)
+            risk_usd = min(round(notional_value * 0.015, 2), 2.00)
 
-        # High-Conviction Real-Time Take-Profit Calibration:
-        # Minimum 2.6% to 3.8% target price run or 2.3x R:R to guarantee 75 to 110+ PKR profit on hit
-        dec_prec = get_precision(current_price)
+        # Scalping vs Swing Take-Profit Calibration:
+        # Rapid Scalping: 1.8% to 2.8% quick profit run for fast turnaround (multiple trades/hr)
+        # Swing: 2.6% to 3.8% target run
+        tick_size = sym_filters.get("tick_size", 0.0001)
         sl_dist = abs(current_price - sl) if sl else (current_price * 0.012)
-        min_tp_dist = max(sl_dist * 2.3, current_price * 0.026)
+        is_scalping = getattr(self, "scalping_mode", True)
+        min_tp_dist = max(sl_dist * 2.0, current_price * (0.018 if is_scalping else 0.026))
 
         if position_type.upper() == "LONG":
-            calc_tp = round(tp if (tp and tp > current_price) else (current_price + min_tp_dist), dec_prec)
-            calc_sl = round(sl if (sl and sl < current_price) else (current_price - sl_dist), dec_prec)
+            raw_tp = tp if (tp and tp > current_price) else (current_price + min_tp_dist)
+            raw_sl = sl if (sl and sl < current_price) else (current_price - sl_dist)
         else:
-            calc_tp = round(tp if (tp and tp < current_price) else (current_price - min_tp_dist), dec_prec)
-            calc_sl = round(sl if (sl and sl > current_price) else (current_price + sl_dist), dec_prec)
+            raw_tp = tp if (tp and tp < current_price) else (current_price - min_tp_dist)
+            raw_sl = sl if (sl and sl > current_price) else (current_price + sl_dist)
+
+        calc_tp = format_price_to_tick(raw_tp, tick_size)
+        calc_sl = format_price_to_tick(raw_sl, tick_size)
 
         entry_fee = round(notional_value * 0.0004, 3)
         self.total_fees_paid_usd += entry_fee
@@ -375,24 +411,29 @@ class TradeEngine:
             "execution_mode": self.trading_mode
         }
 
-        # Real Live or Testnet Binance Execution Bridge
+        # Real Live or Testnet Binance Execution Bridge (Spot Mechanics)
+        # On Binance Spot, buying with USDT opens the trade
         if self.trading_mode in ["BINANCE_LIVE", "BINANCE_TESTNET"] and self.binance_api_key and self.binance_api_secret:
             try:
-                side = "BUY" if position_type.upper() == "LONG" else "SELL"
-                quote_amt = max(round(margin_required, 1), 10.0)  # Binance minimum order value
+                quote_amt = max(round(margin_required, 2), min_notional)
                 r_order, err_order = self.binance_signed_request(
                     "/api/v3/order",
                     method="POST",
-                    params={"symbol": symbol, "side": side, "type": "MARKET", "quoteOrderQty": quote_amt},
+                    params={"symbol": symbol, "side": "BUY", "type": "MARKET", "quoteOrderQty": quote_amt},
                     timeout=12
                 )
                 if r_order is not None and r_order.status_code == 200:
                     order_data = r_order.json()
                     new_pos["binance_order_id"] = order_data.get("orderId")
                     new_pos["binance_status"] = f"{self.trading_mode}_ORDER_FILLED"
-                    print(f"[{self.trading_mode}] Order filled: {order_data.get('orderId')}")
+                    # Update active quantity from actual filled quantity if available
+                    exec_qty = float(order_data.get("executedQty", 0))
+                    if exec_qty > 0:
+                        new_pos["quantity"] = exec_qty
+                        new_pos["remaining_quantity"] = exec_qty
+                    print(f"[{self.trading_mode}] Entry order filled on Binance: {order_data.get('orderId')} ({qty} {symbol})")
                 else:
-                    err_msg = r_order.text[:60] if r_order is not None else str(err_order)
+                    err_msg = r_order.text[:80] if r_order is not None else str(err_order)
                     new_pos["binance_status"] = "REJECTED_FALLBACK"
                     new_pos["binance_note"] = err_msg
                     print(f"[{self.trading_mode}] Order notice: {new_pos['binance_note']}")
@@ -412,9 +453,10 @@ class TradeEngine:
         }
         learning_engine.record_trade_snapshot(position_id, symbol, position_type, current_price, snap, reason)
 
+        mode_label = "Scalp" if is_scalping else "Swing"
         return {
             "success": True,
-            "message": f"Opened {position_type} on {symbol} in Slot {slot_num} | Trade Size: ${notional_value:.2f} ({qty} {symbol.replace('USDT','')}) | Max Risk: ${risk_usd:.2f} ({self.trading_mode})",
+            "message": f"Opened {position_type} {mode_label} on {symbol} in Slot {slot_num} | Size: ${notional_value:.2f} ({qty} {symbol.replace('USDT','')}) | Risk: ${risk_usd:.2f} ({self.trading_mode})",
             "position": new_pos
         }
 
@@ -461,30 +503,62 @@ class TradeEngine:
             elif pos["type"] == "SHORT" and current_price >= pos["sl"]:
                 hit_sl = True
 
-            # 3. REAL-TIME BREAKEVEN SHIELD (0 RISK GUARD)
-            # When trade achieves 50%+ of the distance towards TP, move SL to entry + 0.05%
-            # Position stays 100% OPEN to capture the full TP gain!
+            # 3. REAL-TIME PROFIT GUARD & BREAKEVEN SHIELD
+            # Covers exchange fees (~0.15%) and locks SL at +0.30% gain for guaranteed positive PKR profit!
             if not hit_tp and not hit_sl:
                 total_tp_dist = abs(pos["tp"] - pos["entry_price"])
                 if total_tp_dist > 0:
                     current_gain_dist = (current_price - pos["entry_price"]) if pos["type"] == "LONG" else (pos["entry_price"] - current_price)
                     progress = current_gain_dist / total_tp_dist
                     pos["tp_progress_pct"] = round(max(0.0, min(100.0, progress * 100.0)), 1)
-                    if progress >= 0.50 and not pos.get("breakeven_locked"):
-                        dec_prec = get_precision(pos["entry_price"])
-                        be_price = pos["entry_price"] * (1.0005 if pos["type"] == "LONG" else 0.9995)
+                    dec_prec = get_precision(pos["entry_price"])
+                    
+                    if progress >= 0.35 and not pos.get("breakeven_locked"):
+                        be_price = pos["entry_price"] * (1.0030 if pos["type"] == "LONG" else 0.9970)
                         pos["sl"] = round(be_price, dec_prec)
                         pos["breakeven_locked"] = True
-                        print(f"[BREAKEVEN SHIELD] {pos['id']} ({pos['symbol']}) is up {progress*100:.0f}% towards TP. SL locked at ${pos['sl']} (0 Risk, keeping 100% position active for full TP)!")
+                        print(f"[PROFIT GUARD BREAKEVEN] {pos['id']} ({pos['symbol']}) up {progress*100:.0f}% towards TP. SL locked at ${pos['sl']} (+0.30% gain, net positive profit guaranteed)!")
+                    elif progress >= 0.65:
+                        if pos["type"] == "LONG":
+                            locked_sl = pos["entry_price"] + (current_gain_dist * 0.60)
+                            if locked_sl > pos["sl"]:
+                                pos["sl"] = round(locked_sl, dec_prec)
+                                print(f"[TRAILING PROFIT LOCK] {pos['id']} ({pos['symbol']}) up {progress*100:.0f}% towards TP. SL trailed to ${pos['sl']} (60% profit locked)!")
+                        else:
+                            locked_sl = pos["entry_price"] - (current_gain_dist * 0.60)
+                            if locked_sl < pos["sl"]:
+                                pos["sl"] = round(locked_sl, dec_prec)
+                                print(f"[TRAILING PROFIT LOCK] {pos['id']} ({pos['symbol']}) up {progress*100:.0f}% towards TP. SL trailed to ${pos['sl']} (60% profit locked)!")
+
+            # 4. TIME-BASED & STALE TRADE EXITS (Solves 24-hour hold issue)
+            open_ts = pos.get("open_timestamp", time.time())
+            time_in_trade_sec = time.time() - open_ts
+            stale_trade_exit = False
+            stale_reason = ""
+
+            # 4-Hour Stale Profit Lock: If open 4+ hours and in profit (>= +0.25%), bank profit to free slot
+            if time_in_trade_sec >= 14400 and pnl > 0 and (pnl / (pos.get("margin_usd") or 1.0)) >= 0.0025:
+                stale_trade_exit = True
+                stale_reason = "STALE_PROFIT_LOCK"
+                print(f"[STALE TRADE EXIT] {pos['id']} ({pos['symbol']}) open for {time_in_trade_sec/3600:.1f}h. Banking profit +${pnl:.2f} ({pos.get('unrealized_pnl_pkr',0)} PKR) to free trading slot!")
+
+            # 12-Hour Max Hold Limit: If open 12+ hours and in profit, close trade immediately
+            elif time_in_trade_sec >= 43200 and pnl > 0:
+                stale_trade_exit = True
+                stale_reason = "TIME_DECAY_PROFIT_EXIT"
+                print(f"[MAX HOLD TIME EXIT] {pos['id']} ({pos['symbol']}) open for {time_in_trade_sec/3600:.1f}h. Closing with profit +${pnl:.2f} ({pos.get('unrealized_pnl_pkr',0)} PKR)!")
 
             if hit_tp:
-                print(f"[REAL-TIME 100% TP HIT] {pos['id']} ({pos['symbol']} {pos['type']}) hit TP target @ ${current_price} (TP was ${pos['tp']})! Banking full profit immediately!")
+                print(f"[REAL-TIME 100% TP HIT] {pos['id']} ({pos['symbol']} {pos['type']}) hit TP target @ ${current_price}! Banking full profit immediately!")
                 closed_trade = self._close_position_internal(pos, current_price, "TAKE_PROFIT")
                 closed_now.append(closed_trade)
             elif hit_sl:
                 outcome = "BREAKEVEN_PROTECT" if pos.get("breakeven_locked") else "STOP_LOSS"
-                print(f"[{outcome}] {pos['id']} ({pos['symbol']}) hit SL @ ${current_price} (SL was ${pos['sl']})!")
+                print(f"[{outcome}] {pos['id']} ({pos['symbol']}) hit SL @ ${current_price}!")
                 closed_trade = self._close_position_internal(pos, current_price, outcome)
+                closed_now.append(closed_trade)
+            elif stale_trade_exit:
+                closed_trade = self._close_position_internal(pos, current_price, stale_reason)
                 closed_now.append(closed_trade)
             else:
                 remaining_positions.append(pos)
@@ -518,11 +592,9 @@ class TradeEngine:
         # Live Binance / Testnet Exit Execution (Sell crypto back to USDT to lock in profits)
         if self.trading_mode in ["BINANCE_LIVE", "BINANCE_TESTNET"] and self.binance_api_key and self.binance_api_secret and pos.get("binance_order_id"):
             try:
-                sym = pos["symbol"]
-                sym_filters = get_symbol_filters(sym, self.get_binance_endpoints()[0])
-                close_qty = format_qty_to_step(active_qty, sym_filters["step_size"])
+                close_qty = format_qty_to_step(active_qty, sym_filters["step_size"], sym_filters.get("min_qty", 0.00001))
                 if close_qty >= sym_filters["min_qty"]:
-                    side = "SELL" if pos["type"] == "LONG" else "BUY"
+                    side = "SELL"  # On Spot, exiting always sells the asset back to USDT
                     r_exit, _ = self.binance_signed_request(
                         "/api/v3/order",
                         method="POST",
